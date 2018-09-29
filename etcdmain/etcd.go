@@ -382,6 +382,11 @@ func identifyDataDirOrDie(dir string) dirType {
 	return dirEmpty
 }
 
+/*
+* 检查当前架构是否是Etcd官方支持的。如果是官方未支持的架构，但设置了ETCD_UNSUPPORTED_ARCH这一项，则打印警告
+*
+* 这样做的目的是防止在官方不支持的架构上运行etcd，而运行人员不自知。
+*/
 func checkSupportArch() {
 	// TODO qualify arm64
 	if runtime.GOARCH == "amd64" || runtime.GOARCH == "ppc64le" {
@@ -389,6 +394,9 @@ func checkSupportArch() {
 	}
 	// unsupported arch only configured via environment variable
 	// so unset here to not parse through flag
+
+	// 如果是非官方支持的架构，但设置了环境变量ETCD_UNSUPPORTED_ARCH，则仍然运行
+	// 且函数返回时，删掉此环境变量。下次再运行etcd时，还需要重新设置
 	defer os.Unsetenv("ETCD_UNSUPPORTED_ARCH")
 	if env, ok := os.LookupEnv("ETCD_UNSUPPORTED_ARCH"); ok && env == runtime.GOARCH {
 		plog.Warningf("running etcd on unsupported architecture %q since ETCD_UNSUPPORTED_ARCH is set", env)
