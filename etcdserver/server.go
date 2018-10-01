@@ -60,7 +60,7 @@ import (
 	"github.com/coreos/go-semver/semver"
 	"github.com/coreos/pkg/capnslog"
 	"github.com/prometheus/client_golang/prometheus"
-	"golang.org/x/net/context"
+	//"golang.org/x/net/context"
 )
 
 const (

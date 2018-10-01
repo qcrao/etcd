@@ -24,6 +24,7 @@ import (
 )
 
 func Main() {
+	// 检查是否是Etcd支持的架构
 	checkSupportArch()
 
 	if len(os.Args) > 1 {
