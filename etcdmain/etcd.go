@@ -68,6 +68,7 @@ func startEtcdOrProxyV2() {
 		}
 		os.Exit(1)
 	}
+	// 设置日志级别等
 	cfg.ec.SetupLogging()
 
 	var stopped <-chan struct{}
@@ -157,6 +158,7 @@ func startEtcdOrProxyV2() {
 		plog.Fatalf("%v", err)
 	}
 
+	// 监听syscall.SIGINT, syscall.SIGTERM信号，回调退出函数。即优雅退出
 	osutil.HandleInterrupts()
 
 	// At this point, the initialization of etcd is done.
@@ -164,8 +166,12 @@ func startEtcdOrProxyV2() {
 	// for accepting connections. The etcd instance should be
 	// joined with the cluster and ready to serve incoming
 	// connections.
+	// 此刻，etcd初始化完成
+	// listeners监听TCP端口并且准备接受连接
+	// etcd实例准备好服务即将到来的客户端连接。
 	notifySystemd()
 
+	// 等待errc, stopped通道中返回出错和停止信息
 	select {
 	case lerr := <-errc:
 		// fatal out on listener errors
@@ -177,20 +183,23 @@ func startEtcdOrProxyV2() {
 }
 
 // startEtcd runs StartEtcd in addition to hooks needed for standalone etcd.
+// startEtcd运行StartEtcd并且为etcd单例设置必要的回调函数
 func startEtcd(cfg *embed.Config) (<-chan struct{}, <-chan error, error) {
 	e, err := embed.StartEtcd(cfg)
 	if err != nil {
 		return nil, nil, err
 	}
+	// 注册etcd关闭时的回调函数
 	osutil.RegisterInterruptHandler(e.Close)
 	select {
-	case <-e.Server.ReadyNotify(): // wait for e.Server to join the cluster
+	case <-e.Server.ReadyNotify(): // wait for e.Server to join the cluster // 等待e.Server加入集群
 	case <-e.Server.StopNotify(): // publish aborted from 'ErrStopped'
 	}
 	return e.Server.StopNotify(), e.Err(), nil
 }
 
 // startProxy launches an HTTP proxy for client communication which proxies to other etcd nodes.
+// startProxy为客户端通信启动一个HTTP代理，它连接到其他etcd节点
 func startProxy(cfg *config) error {
 	plog.Notice("proxy: this proxy supports v2 API only!")
 
@@ -349,6 +358,8 @@ func startProxy(cfg *config) error {
 
 // identifyDataDirOrDie returns the type of the data dir.
 // Dies if the datadir is invalid.
+// identifyDataDirOrDie返回data目录的类型
+// 如果data目录不合法，直接panic
 func identifyDataDirOrDie(dir string) dirType {
 	names, err := fileutil.ReadDir(dir)
 	if err != nil {

@@ -89,6 +89,7 @@ func init() {
 }
 
 // Config holds the arguments for configuring an etcd server.
+// Config维护etcd server的参数
 type Config struct {
 	// member
 

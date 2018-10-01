@@ -29,25 +29,51 @@ import (
 
 // ServerConfig holds the configuration of etcd as taken from the command line or discovery.
 type ServerConfig struct {
+	// etcdserver 名称，对应flag "name“
 	Name           string
+	// etcd 用于服务发现，无需知道具体etcd节点ip即可访问etcd 服务，对应flag  "discovery"
 	DiscoveryURL   string
+	// 供服务发现url的代理地址， 对应flag "discovery-proxy"
 	DiscoveryProxy string
+	// 由ip+port组成，默认DefaultListenClientURLs = "http://localhost:2379";
+	// 实际情况使用https schema，用以外部etcd client访问，对应flag "listen-client-urls"
 	ClientURLs     types.URLs
+	// 由ip+port组成，默认DefaultListenPeerURLs   = "http://localhost:2380";
+	// 实际生产环境使用http schema, 供etcd member 通信，对应flag "peer-client-urls"
 	PeerURLs       types.URLs
+	// 数据目录地址，为全路径，对应flag "data-dir"
 	DataDir        string
 	// DedicatedWALDir config will make the etcd to write the WAL to the WALDir
 	// rather than the dataDir/member/wal.
+	// 此字段使etcd将wal日志改写到此路径。
 	DedicatedWALDir     string
+	// 默认是10000次事件做一次快照:DefaultSnapCount = 100000
+	// 可以作为调优参数进行参考，对应flag "snapshot-count",
 	SnapCount           uint64
+	// 默认是5，这是v2的参数，v3内只有一个db文件，
+	// DefaultMaxSnapshots = 5，对应flag "max-snapshots"
 	MaxSnapFiles        uint
+	// 默认是5，DefaultMaxWALs      = 5，表示最大存储wal文件的个数，
+	// 对应flag "max-wals"，保留的文件可以作为etcd-dump-logs工具进行debug使用。
 	MaxWALFiles         uint
+	// peerUrl 与 etcd name对应的map,由方法cfg.PeerURLsMapAndToken("etcd")生成。
 	InitialPeerURLsMap  types.URLsMap
+	// etcd 集群token, 对应flang "initial-cluster-token"
 	InitialClusterToken string
+	// 确定是否为新建集群，对应flag "initial-cluster-state"
 	NewCluster          bool
+	// 对应flag "force-new-cluster",默认为false,若为true，
+	// 在生产环境内，一般用于含v2数据的集群恢复.
+	// 效果为以现有数据或者空数据新建一个单节点的etcd集群，
+	// 如果存在元数据，则会清掉数据内的元数据信息，并重建只包含该etcd的元数据信息。
 	ForceNewCluster     bool
+	// member间通信使用的证书信息，若peerURL为https时使用，对应flag "peer-ca-file","peer-cert-file", "peer-key-file"
 	PeerTLSInfo         transport.TLSInfo
-
+	// raft node 发送心跳信息的超时时间。 "heartbeat-interval"
 	TickMs        uint
+	// raft node 发起选举的超时时间，最大为5000ms maxElectionMs = 50000,
+	// 对应flag "election-timeout",
+	// 选举时间与心跳时间在最佳实践内建议是10倍关系。
 	ElectionTicks int
 
 	// InitialElectionTickAdvance is true, then local member fast-forwards
@@ -81,8 +107,15 @@ type ServerConfig struct {
 
 	BootstrapTimeout time.Duration
 
+	// 默认为0，单位为小时，主要为了方便用户快速查询，
+	// 定时对key进行合并处理，对应flag "auto-compaction-retention",
+	// 由方法func NewPeriodic(h int, rg RevGetter, c Compactable) *Periodic确定，
+	// 具体compact的实现方法为：
+	//func (s *kvServer) Compact(ctx context.Context, r *pb.CompactionRequest) (*pb.CompactionResponse, error)
 	AutoCompactionRetention time.Duration
 	AutoCompactionMode      string
+	// etcd后端数据文件的大小，默认为2GB，最大为8GB, v3的参数，
+	// 对应flag  "quota-backend-bytes" ，具体定义：etcd\etcdserver\quota.go
 	QuotaBackendBytes       int64
 	MaxTxnOps               uint
 
@@ -213,6 +246,7 @@ func (c *ServerConfig) SnapDir() string { return filepath.Join(c.MemberDir(), "s
 func (c *ServerConfig) ShouldDiscover() bool { return c.DiscoveryURL != "" }
 
 // ReqTimeout returns timeout for request to finish.
+// ReqTimeout返回完成一个request的时间
 func (c *ServerConfig) ReqTimeout() time.Duration {
 	// 5s for queue waiting, computation and disk IO delay
 	// + 2 * election timeout for possible leader election

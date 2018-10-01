@@ -70,6 +70,8 @@ type TLSInfo struct {
 
 	// HandshakeFailure is optionally called when a connection fails to handshake. The
 	// connection will be closed immediately afterwards.
+	// HandshakeFailure 当一个连接握手失败后，会调用此函数
+	// 此连接之后会被释放
 	HandshakeFailure func(*tls.Conn, error)
 
 	// CipherSuites is a list of supported cipher suites.

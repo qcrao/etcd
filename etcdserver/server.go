@@ -257,6 +257,8 @@ type EtcdServer struct {
 
 // NewServer creates a new EtcdServer from the supplied configuration. The
 // configuration is considered static for the lifetime of the EtcdServer.
+// NewServer根据配置创建了一个新的EtcdServer
+// 此配置在EtcdServer整个生命周期内是保持不变的
 func NewServer(cfg ServerConfig) (srv *EtcdServer, err error) {
 	st := store.New(StoreClusterPrefix, StoreKeysPrefix)
 

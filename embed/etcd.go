@@ -66,8 +66,8 @@ const (
 
 // Etcd contains a running etcd server and its listeners.
 type Etcd struct {
-	Peers   []*peerListener
-	Clients []net.Listener
+	Peers   []*peerListener // etcd同其他节点间的交互
+	Clients []net.Listener // 外部通信，即和客户端的通信
 	// a map of contexts for the servers that serves client requests.
 	sctxs            map[string]*serveCtx
 	metricsListeners []net.Listener
@@ -90,6 +90,10 @@ type peerListener struct {
 // StartEtcd launches the etcd server and HTTP handlers for client/server communication.
 // The returned Etcd.Server is not guaranteed to have joined the cluster. Wait
 // on the Etcd.Server.ReadyNotify() channel to know when it completes and is ready for use.
+
+// 启动etcd server并且启动客户端和服务端通信的http服务
+// 返回的Etcd实例不保证已加入集群
+// 等待Etcd.Server.ReadyNotify() channel从而知道何时服务ready并对外提供服务
 func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 	if err = inCfg.Validate(); err != nil {
 		return nil, err

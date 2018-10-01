@@ -43,6 +43,7 @@ func RegisterInterruptHandler(h InterruptHandler) {
 }
 
 // HandleInterrupts calls the handler functions on receiving a SIGINT or SIGTERM.
+// HandleInterrupts 在收到SIGINT或者SIGTERM信号后回调相关函数
 func HandleInterrupts() {
 	notifier := make(chan os.Signal, 1)
 	signal.Notify(notifier, syscall.SIGINT, syscall.SIGTERM)
