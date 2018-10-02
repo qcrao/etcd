@@ -40,6 +40,8 @@ func newEventHistory(capacity int) *EventHistory {
 }
 
 // addEvent function adds event into the eventHistory
+//
+// addEvent将event加入到eventHistory中
 func (eh *EventHistory) addEvent(e *Event) *Event {
 	eh.rwl.Lock()
 	defer eh.rwl.Unlock()
@@ -60,6 +62,7 @@ func (eh *EventHistory) scan(key string, recursive bool, index uint64) (*Event, 
 	defer eh.rwl.RUnlock()
 
 	// index should be after the event history's StartIndex
+	// index应该大于等于EventHistory的起始index
 	if index < eh.StartIndex {
 		return nil,
 			etcdErr.NewError(etcdErr.EcodeEventIndexCleared,

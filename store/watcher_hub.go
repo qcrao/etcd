@@ -30,9 +30,15 @@ import (
 // watcher to get a continuous event history. Or a watcher might miss the
 // event happens between the end of the first watch command and the start
 // of the second command.
+//
+// watcherHub包含所有的监听者
+// watchers字段是一个监听路径作为key, 监听者作为value的一个map
+// EventHistory维护watcherHub的历史事件，它用来帮助监听者获取连续的事件历史。
+// 否则监听者可能会丢失第一个watch命令到第二个watch命令之间的事件
 type watcherHub struct {
 	// count must be the first element to keep 64-bit alignment for atomic
 	// access
+	// count 必须是第一个元素，以保持64位的对齐，这样能保证64位的原子操作
 
 	count int64 // current number of watchers.
 
@@ -115,6 +121,7 @@ func (wh *watcherHub) watch(key string, recursive, stream bool, index, storeInde
 	return w, nil
 }
 
+// 直接将事件加入到历史
 func (wh *watcherHub) add(e *Event) {
 	wh.EventHistory.addEvent(e)
 }
@@ -153,10 +160,15 @@ func (wh *watcherHub) notifyWatchers(e *Event, nodePath string, deleted bool) {
 
 			originalPath := (e.Node.Key == nodePath)
 			if (originalPath || !isHidden(nodePath, e.Node.Key)) && w.notify(e, originalPath, deleted) {
+				// 如果是stream式监听者，则会一直监听
 				if !w.stream { // do not remove the stream watcher
 					// if we successfully notify a watcher
 					// we need to remove the watcher from the list
 					// and decrease the counter
+					//
+					// 如果成功通知了一个watcher
+					// 那么我们需要将此watcher从list中移除
+					// 并且将watherhub的count减1
 					w.removed = true
 					l.Remove(curr)
 					atomic.AddInt64(&wh.count, -1)
@@ -190,6 +202,8 @@ func (wh *watcherHub) clone() *watcherHub {
 func isHidden(watchPath, keyPath string) bool {
 	// When deleting a directory, watchPath might be deeper than the actual keyPath
 	// For example, when deleting /foo we also need to notify watchers on /foo/bar.
+	//
+	// 如果监听目录大于key目录，则不隐藏，即需要发送通知
 	if len(watchPath) > len(keyPath) {
 		return false
 	}

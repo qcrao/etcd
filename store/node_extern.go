@@ -25,6 +25,11 @@ import (
 // internal node with additional fields
 // PrevValue is the previous value of the node
 // TTL is time to live in second
+//
+// NodeExtern是内部node的外部表示
+// 加上了几个额外的字段
+// PrevValue是节点的上一个值
+// TTL是这个key的存活时间
 type NodeExtern struct {
 	Key           string      `json:"key,omitempty"`
 	Value         *string     `json:"value,omitempty"`
@@ -40,6 +45,7 @@ func (eNode *NodeExtern) loadInternalNode(n *node, recursive, sorted bool, clock
 	if n.IsDir() { // node is a directory
 		eNode.Dir = true
 
+		// 忽略不是目录的错误
 		children, _ := n.List()
 		eNode.Nodes = make(NodeExterns, len(children))
 

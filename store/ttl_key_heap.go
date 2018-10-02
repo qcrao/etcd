@@ -19,6 +19,8 @@ import (
 )
 
 // An TTLKeyHeap is a min-heap of TTLKeys order by expiration time
+//
+// TTLKeyHeap是一个有过期时间key的最小堆
 type ttlKeyHeap struct {
 	array  []*node
 	keyMap map[*node]int

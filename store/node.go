@@ -36,8 +36,12 @@ var Permanent time.Time
 // node is the basic element in the store system.
 // A key-value pair will have a string value
 // A directory will have a children map
+//
+// node是存储系统的基本元素
+// 一个key-value对有一个string类型的value
+// 一个目录有一个孩子map
 type node struct {
-	Path string
+	Path string // 我们常说的key
 
 	CreatedIndex  uint64
 	ModifiedIndex uint64
@@ -49,6 +53,7 @@ type node struct {
 	Children   map[string]*node // for directory
 
 	// A reference to the store this node is attached to.
+	// store对应存储系统中的真实存储
 	store *store
 }
 
@@ -66,6 +71,8 @@ func newKV(store *store, nodePath string, value string, createdIndex uint64, par
 }
 
 // newDir creates a directory
+//
+// newDir创建一个目录
 func newDir(store *store, nodePath string, createdIndex uint64, parent *node, expireTime time.Time) *node {
 	return &node{
 		Path:          nodePath,
@@ -106,6 +113,8 @@ func (n *node) IsDir() bool {
 
 // Read function gets the value of the node.
 // If the receiver node is not a key-value pair, a "Not A File" error will be returned.
+//
+// 读取叶子节点的value
 func (n *node) Read() (string, *etcdErr.Error) {
 	if n.IsDir() {
 		return "", etcdErr.NewError(etcdErr.EcodeNotFile, "", n.store.CurrentIndex)
@@ -116,6 +125,8 @@ func (n *node) Read() (string, *etcdErr.Error) {
 
 // Write function set the value of the node to the given value.
 // If the receiver node is a directory, a "Not A File" error will be returned.
+//
+// 设置叶子节点的value
 func (n *node) Write(value string, index uint64) *etcdErr.Error {
 	if n.IsDir() {
 		return etcdErr.NewError(etcdErr.EcodeNotFile, "", n.store.CurrentIndex)
@@ -127,6 +138,7 @@ func (n *node) Write(value string, index uint64) *etcdErr.Error {
 	return nil
 }
 
+// 计算过期时间以及ttl（以s为单位）
 func (n *node) expirationAndTTL(clock clockwork.Clock) (*time.Time, int64) {
 	if !n.IsPermanent() {
 		/* compute ttl as:
@@ -149,6 +161,9 @@ func (n *node) expirationAndTTL(clock clockwork.Clock) (*time.Time, int64) {
 
 // List function return a slice of nodes under the receiver node.
 // If the receiver node is not a directory, a "Not A Directory" error will be returned.
+//
+// List函数返回此节点的所有子节点
+// 如果此节点是非目录，则返回"Not A Directory"错误
 func (n *node) List() ([]*node, *etcdErr.Error) {
 	if !n.IsDir() {
 		return nil, etcdErr.NewError(etcdErr.EcodeNotDir, "", n.store.CurrentIndex)
@@ -167,6 +182,8 @@ func (n *node) List() ([]*node, *etcdErr.Error) {
 
 // GetChild function returns the child node under the directory node.
 // On success, it returns the file node
+//
+// 获取当前节点的孩子节点
 func (n *node) GetChild(name string) (*node, *etcdErr.Error) {
 	if !n.IsDir() {
 		return nil, etcdErr.NewError(etcdErr.EcodeNotDir, n.Path, n.store.CurrentIndex)
@@ -185,6 +202,8 @@ func (n *node) GetChild(name string) (*node, *etcdErr.Error) {
 // If the receiver is not a directory, a "Not A Directory" error will be returned.
 // If there is an existing node with the same name under the directory, a "Already Exist"
 // error will be returned
+//
+// Add将参数加入到当前节点的child map中
 func (n *node) Add(child *node) *etcdErr.Error {
 	if !n.IsDir() {
 		return etcdErr.NewError(etcdErr.EcodeNotDir, "", n.store.CurrentIndex)
@@ -207,6 +226,7 @@ func (n *node) Remove(dir, recursive bool, callback func(path string)) *etcdErr.
 		_, name := path.Split(n.Path)
 
 		// find its parent and remove the node from the map
+		// 找到自己的父节点，并且从map中删除
 		if n.Parent != nil && n.Parent.Children[name] == n {
 			delete(n.Parent.Children, name)
 		}
@@ -215,6 +235,7 @@ func (n *node) Remove(dir, recursive bool, callback func(path string)) *etcdErr.
 			callback(n.Path)
 		}
 
+		// 如果n不是永久key，则从最小堆中删除
 		if !n.IsPermanent() {
 			n.store.ttlKeyHeap.remove(n)
 		}
@@ -222,8 +243,10 @@ func (n *node) Remove(dir, recursive bool, callback func(path string)) *etcdErr.
 		return nil
 	}
 
+	// 以下为当node为目录时的操作
 	if !dir {
 		// cannot delete a directory without dir set to true
+		// 删除目录时比较谨慎，需要将dir设置为true
 		return etcdErr.NewError(etcdErr.EcodeNotFile, n.Path, n.store.CurrentIndex)
 	}
 
@@ -233,11 +256,13 @@ func (n *node) Remove(dir, recursive bool, callback func(path string)) *etcdErr.
 		return etcdErr.NewError(etcdErr.EcodeDirNotEmpty, n.Path, n.store.CurrentIndex)
 	}
 
+	// 当node为目录，且dir设置为true，并且recursive设置为true时，才会真正删除key
 	for _, child := range n.Children { // delete all children
 		child.Remove(true, true, callback)
 	}
 
 	// delete self
+	// 删除自己
 	_, name := path.Split(n.Path)
 	if n.Parent != nil && n.Parent.Children[name] == n {
 		delete(n.Parent.Children, name)
@@ -254,6 +279,7 @@ func (n *node) Remove(dir, recursive bool, callback func(path string)) *etcdErr.
 	return nil
 }
 
+// 返回当前节点的所有子节点（如果有）
 func (n *node) Repr(recursive, sorted bool, clock clockwork.Clock) *NodeExtern {
 	if n.IsDir() {
 		node := &NodeExtern{
@@ -264,6 +290,7 @@ func (n *node) Repr(recursive, sorted bool, clock clockwork.Clock) *NodeExtern {
 		}
 		node.Expiration, node.TTL = n.expirationAndTTL(clock)
 
+		// 如果不是递归，则直接返回
 		if !recursive {
 			return node
 		}
@@ -287,6 +314,7 @@ func (n *node) Repr(recursive, sorted bool, clock clockwork.Clock) *NodeExtern {
 		}
 
 		// eliminate hidden nodes
+		// 去掉隐藏的节点
 		node.Nodes = node.Nodes[:i]
 		if sorted {
 			sort.Sort(node.Nodes)
@@ -303,10 +331,18 @@ func (n *node) Repr(recursive, sorted bool, clock clockwork.Clock) *NodeExtern {
 		ModifiedIndex: n.ModifiedIndex,
 		CreatedIndex:  n.CreatedIndex,
 	}
+	// 计算过期时间以及ttl
 	node.Expiration, node.TTL = n.expirationAndTTL(clock)
 	return node
 }
 
+// 更新node的TTL
+// 如果node之前不是永久的Key（即有ttl）
+//    如果参数是0（永久），则更新过期时间，且从最小堆中移除
+//    如果参数非0，则更新过期时间，且更新最小堆
+// 如果node之前是永久的Key（即无ttl）
+//    如果参数是0，则直接返回
+//    否则，更新过期时间，同时加入到最小堆
 func (n *node) UpdateTTL(expireTime time.Time) {
 	if !n.IsPermanent() {
 		if expireTime.IsZero() {
@@ -380,6 +416,8 @@ func (n *node) Clone() *node {
 // call this function on its children.
 // We check the expire last since we need to recover the whole structure first and add all the
 // notifications into the event history.
+//
+// 恢复节点数据
 func (n *node) recoverAndclean() {
 	if n.IsDir() {
 		for _, child := range n.Children {

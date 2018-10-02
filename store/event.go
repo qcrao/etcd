@@ -46,6 +46,7 @@ func newEvent(action string, key string, modifiedIndex, createdIndex uint64) *Ev
 	}
 }
 
+// 是否是创建事件：如果Action是Create或者Action是Set，prevNode是空的（此时Set相当于创建）
 func (e *Event) IsCreated() bool {
 	if e.Action == Create {
 		return true

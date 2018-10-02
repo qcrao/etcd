@@ -70,19 +70,29 @@ type TTLOptionSet struct {
 	Refresh    bool
 }
 
+// 叶子结点
 type store struct {
+	// 根结点
 	Root           *node
+	// 监听仓库
 	WatcherHub     *watcherHub
+	// 当前索引
 	CurrentIndex   uint64
+	// 状态
 	Stats          *Stats
+	// 当前版本
 	CurrentVersion int
+	// 有过期时间的key集合，需要人工恢复
 	ttlKeyHeap     *ttlKeyHeap  // need to recovery manually
 	worldLock      sync.RWMutex // stop the world lock
 	clock          clockwork.Clock
+	// 只读路径集合
 	readonlySet    types.Set
 }
 
 // New creates a store where the given namespaces will be created as initial directories.
+//
+// New给定的命名空间创建一个存储。结果是一个接口
 func New(namespaces ...string) Store {
 	s := newStore(namespaces...)
 	s.clock = clockwork.NewRealClock()
@@ -118,6 +128,10 @@ func (s *store) Index() uint64 {
 // Get returns a get event.
 // If recursive is true, it will return all the content under the node path.
 // If sorted is true, it will sort the content by keys.
+//
+// Get返回一个get事件
+// 如果recursive字段为真，它会返回node path下面的所有内容
+// 如果sorted为真，它会将内容进行排序
 func (s *store) Get(nodePath string, recursive, sorted bool) (*Event, error) {
 	var err *etcdErr.Error
 
@@ -148,6 +162,7 @@ func (s *store) Get(nodePath string, recursive, sorted bool) (*Event, error) {
 		return nil, err
 	}
 
+	// 生成Event
 	e := newEvent(Get, nodePath, n.ModifiedIndex, n.CreatedIndex)
 	e.EtcdIndex = s.CurrentIndex
 	e.Node.loadInternalNode(n, recursive, sorted, s.clock)
@@ -158,6 +173,10 @@ func (s *store) Get(nodePath string, recursive, sorted bool) (*Event, error) {
 // Create creates the node at nodePath. Create will help to create intermediate directories with no ttl.
 // If the node has already existed, create will fail.
 // If any node on the path is a file, create will fail.
+//
+// Create在nodePath下创建一个节点，Create会创建一个没有ttl的中间目录
+// 如果节点已经存在，则会创建失败
+// 如果在路径上有任何节点是一个叶子节点，创建失败
 func (s *store) Create(nodePath string, dir bool, value string, unique bool, expireOpts TTLOptionSet) (*Event, error) {
 	var err *etcdErr.Error
 
@@ -181,12 +200,14 @@ func (s *store) Create(nodePath string, dir bool, value string, unique bool, exp
 	}
 
 	e.EtcdIndex = s.CurrentIndex
+	// 将事件加入监听仓库
 	s.WatcherHub.notify(e)
 
 	return e, nil
 }
 
 // Set creates or replace the node at nodePath.
+// Set创建或替换nodePath处的节点
 func (s *store) Set(nodePath string, dir bool, value string, expireOpts TTLOptionSet) (*Event, error) {
 	var err *etcdErr.Error
 
@@ -311,6 +332,7 @@ func (s *store) CompareAndSwap(nodePath string, prevValue string, prevIndex uint
 	eNode := e.Node
 
 	// if test succeed, write the value
+	// 如果比较成功，则写入新值，同时更新过期时间
 	n.Write(value, s.CurrentIndex)
 	n.UpdateTTL(expireOpts.ExpireTime)
 
@@ -319,6 +341,8 @@ func (s *store) CompareAndSwap(nodePath string, prevValue string, prevIndex uint
 	eNode.Value = &valueCopy
 	eNode.Expiration, eNode.TTL = n.expirationAndTTL(s.clock)
 
+	// 如果refresh为false，则给监听者发送通知
+	// 否则，将event的value值置为true，并直接将事件加入到历史
 	if !expireOpts.Refresh {
 		s.WatcherHub.notify(e)
 	} else {
@@ -466,6 +490,8 @@ func (s *store) Watch(key string, recursive, stream bool, sinceIndex uint64) (Wa
 }
 
 // walk walks all the nodePath and apply the walkFunc on each directory
+//
+// 遍历路径上的每个"子路径"，并调用walkFunc
 func (s *store) walk(nodePath string, walkFunc func(prev *node, component string) (*node, *etcdErr.Error)) (*node, *etcdErr.Error) {
 	components := strings.Split(nodePath, "/")
 
@@ -571,6 +597,7 @@ func (s *store) internalCreate(nodePath string, dir bool, value string, unique, 
 	nodePath = path.Clean(path.Join("/", nodePath))
 
 	// we do not allow the user to change "/"
+	// 根结点不能修改
 	if s.readonlySet.Contains(nodePath) {
 		return nil, etcdErr.NewError(etcdErr.EcodeRootROnly, "/", currIndex)
 	}
@@ -584,6 +611,7 @@ func (s *store) internalCreate(nodePath string, dir bool, value string, unique, 
 	dirName, nodeName := path.Split(nodePath)
 
 	// walk through the nodePath, create dirs and get the last directory node
+	// 创建dirName为路径的目录
 	d, err := s.walk(dirName, s.checkDir)
 
 	if err != nil {
@@ -599,6 +627,7 @@ func (s *store) internalCreate(nodePath string, dir bool, value string, unique, 
 	n, _ := d.GetChild(nodeName)
 
 	// force will try to replace an existing file
+	// 如果n不为空，说明为叶子节点
 	if n != nil {
 		if replace {
 			if n.IsDir() {
@@ -608,10 +637,12 @@ func (s *store) internalCreate(nodePath string, dir bool, value string, unique, 
 
 			n.Remove(false, false, nil)
 		} else {
+			// 不强制覆盖，则说明叶子节点已存在
 			return nil, etcdErr.NewError(etcdErr.EcodeNodeExist, nodePath, currIndex)
 		}
 	}
 
+	// 如果不是目录
 	if !dir { // create file
 		// copy the value for safety
 		valueCopy := value
@@ -630,6 +661,7 @@ func (s *store) internalCreate(nodePath string, dir bool, value string, unique, 
 
 	// node with TTL
 	if !n.IsPermanent() {
+		// 有过期时间，加入最小堆
 		s.ttlKeyHeap.push(n)
 
 		eNode.Expiration, eNode.TTL = n.expirationAndTTL(s.clock)
@@ -641,24 +673,30 @@ func (s *store) internalCreate(nodePath string, dir bool, value string, unique, 
 }
 
 // InternalGet gets the node of the given nodePath.
+//
+// InternalGet获取给定路径的结点指针
 func (s *store) internalGet(nodePath string) (*node, *etcdErr.Error) {
 	nodePath = path.Clean(path.Join("/", nodePath))
 
+	// 找到parent是否含有name孩子，如果有，则返回孩子节点指针
 	walkFunc := func(parent *node, name string) (*node, *etcdErr.Error) {
-
+		// 如果parent不是目录，则返回空以及EcodeNotDir错误
 		if !parent.IsDir() {
 			err := etcdErr.NewError(etcdErr.EcodeNotDir, parent.Path, s.CurrentIndex)
 			return nil, err
 		}
 
+		// 找到孩子节点指针
 		child, ok := parent.Children[name]
 		if ok {
 			return child, nil
 		}
 
+		// 没有孩子节点，返回错误
 		return nil, etcdErr.NewError(etcdErr.EcodeKeyNotFound, path.Join(parent.Path, name), s.CurrentIndex)
 	}
 
+	// 找到给定路径的指针
 	f, err := s.walk(nodePath, walkFunc)
 
 	if err != nil {
@@ -706,6 +744,11 @@ func (s *store) DeleteExpiredKeys(cutoff time.Time) {
 // If it is a directory, this function will return the pointer to that node.
 // If it does not exist, this function will create a new directory and return the pointer to that node.
 // If it is a file, this function will return error.
+//
+// checkDir检查parent下的节点是否是目录
+// 如果是目录，那么函数将返回指向该目录的指针
+// 如果不存在，则会创建一个目录，并返回指向该节点的指针
+// 如果是一个叶子节点，函数将返回错误
 func (s *store) checkDir(parent *node, dirName string) (*node, *etcdErr.Error) {
 	node, ok := parent.Children[dirName]
 

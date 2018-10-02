@@ -14,6 +14,7 @@
 
 package store
 
+// 循环队列
 type eventQueue struct {
 	Events   []*Event
 	Size     int
