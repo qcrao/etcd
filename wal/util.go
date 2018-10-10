@@ -37,6 +37,9 @@ func Exist(dirpath string) bool {
 // searchIndex returns the last array index of names whose raft index section is
 // equal to or smaller than the given index.
 // The given names MUST be sorted.
+//
+// searchIndex返回names数组中index小于等于给定的index
+// 参数的names必须是经过排序的
 func searchIndex(names []string, index uint64) (int, bool) {
 	for i := len(names) - 1; i >= 0; i-- {
 		name := names[i]

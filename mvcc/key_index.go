@@ -73,6 +73,8 @@ type keyIndex struct {
 }
 
 // put puts a revision to the keyIndex.
+//
+// put 将一个修订增添加到keyIndex中
 func (ki *keyIndex) put(main int64, sub int64) {
 	rev := revision{main: main, sub: sub}
 
@@ -82,16 +84,18 @@ func (ki *keyIndex) put(main int64, sub int64) {
 	if len(ki.generations) == 0 {
 		ki.generations = append(ki.generations, generation{})
 	}
+	// 取generations数组最后一个
 	g := &ki.generations[len(ki.generations)-1]
-	if len(g.revs) == 0 { // create a new key
-		keysGauge.Inc()
-		g.created = rev
+	if len(g.revs) == 0 { // create a new key // 这表示增加了一个新key // 此generation是上一次tombstone之后留下的空版本
+		keysGauge.Inc() // key总数
+		g.created = rev // 此generation被创建时key的修订版本
 	}
 	g.revs = append(g.revs, rev)
-	g.ver++
-	ki.modified = rev
+	g.ver++ // 增加一个版本
+	ki.modified = rev // 最后修改的版本
 }
 
+// 根据指定条件恢复
 func (ki *keyIndex) restore(created, modified revision, ver int64) {
 	if len(ki.generations) != 0 {
 		plog.Panicf("store.keyindex: cannot restore non-empty keyIndex")
@@ -106,6 +110,9 @@ func (ki *keyIndex) restore(created, modified revision, ver int64) {
 // tombstone puts a revision, pointing to a tombstone, to the keyIndex.
 // It also creates a new empty generation in the keyIndex.
 // It returns ErrRevisionNotFound when tombstone on an empty generation.
+//
+// tombstone添加一个tombstone到keyIndex中
+// put完之后，会再创建一个空的generation
 func (ki *keyIndex) tombstone(main int64, sub int64) error {
 	if ki.isEmpty() {
 		plog.Panicf("store.keyindex: unexpected tombstone on empty keyIndex %s", string(ki.key))
@@ -121,6 +128,8 @@ func (ki *keyIndex) tombstone(main int64, sub int64) error {
 
 // get gets the modified, created revision and version of the key that satisfies the given atRev.
 // Rev must be higher than or equal to the given atRev.
+//
+// get获取大于等于atRev最后编辑版本，创建版本，以及之后的版本数
 func (ki *keyIndex) get(atRev int64) (modified, created revision, ver int64, err error) {
 	if ki.isEmpty() {
 		plog.Panicf("store.keyindex: unexpected get on empty keyIndex %s", string(ki.key))
@@ -130,6 +139,7 @@ func (ki *keyIndex) get(atRev int64) (modified, created revision, ver int64, err
 		return revision{}, revision{}, 0, ErrRevisionNotFound
 	}
 
+	// 找到主版本号小于当atRev的位置。n!=-1说明找到了
 	n := g.walk(func(rev revision) bool { return rev.main > atRev })
 	if n != -1 {
 		return g.revs[n], g.created, g.ver - int64(len(g.revs)-n-1), nil
@@ -141,6 +151,8 @@ func (ki *keyIndex) get(atRev int64) (modified, created revision, ver int64, err
 // since returns revisions since the given rev. Only the revision with the
 // largest sub revision will be returned if multiple revisions have the same
 // main revision.
+//
+// since返回给定版本之后的所有版本。同主版号的只返回一个
 func (ki *keyIndex) since(rev int64) []revision {
 	if ki.isEmpty() {
 		plog.Panicf("store.keyindex: unexpected get on empty keyIndex %s", string(ki.key))
@@ -148,16 +160,20 @@ func (ki *keyIndex) since(rev int64) []revision {
 	since := revision{rev, 0}
 	var gi int
 	// find the generations to start checking
+	//
+	// 找到开始检查的generations
 	for gi = len(ki.generations) - 1; gi > 0; gi-- {
 		g := ki.generations[gi]
 		if g.isEmpty() {
 			continue
 		}
+		// 逆序找到第一个小于since的rev
 		if since.GreaterThan(g.created) {
 			break
 		}
 	}
 
+	// 找到之后所有大于since的版本
 	var revs []revision
 	var last int64
 	for ; gi < len(ki.generations); gi++ {
@@ -182,20 +198,26 @@ func (ki *keyIndex) since(rev int64) []revision {
 // revision than the given atRev except the largest one (If the largest one is
 // a tombstone, it will not be kept).
 // If a generation becomes empty during compaction, it will be removed.
+//
+// compact会移除小于等于给定版本的所有版本（除了最靠近给定版本的那个，但如果最靠近的版本是tombstone, 则仍然删除）
+// 如果一个generation变空了，则会被移掉
 func (ki *keyIndex) compact(atRev int64, available map[revision]struct{}) {
 	if ki.isEmpty() {
 		plog.Panicf("store.keyindex: unexpected compact on empty keyIndex %s", string(ki.key))
 	}
 
+	// genIdx可能为len(ki.generations)-1，此时revIndex为-1. 最后一个版本可能为空
 	genIdx, revIndex := ki.doCompact(atRev, available)
 
 	g := &ki.generations[genIdx]
 	if !g.isEmpty() {
 		// remove the previous contents.
+		// 移掉之前的小版本
 		if revIndex != -1 {
 			g.revs = g.revs[revIndex:]
 		}
 		// remove any tombstone
+		// 移掉tombstone. tombstone只有一个版本，且不是最后一代
 		if len(g.revs) == 1 && genIdx != len(ki.generations)-1 {
 			delete(available, g.revs[0])
 			genIdx++
@@ -207,6 +229,8 @@ func (ki *keyIndex) compact(atRev int64, available map[revision]struct{}) {
 }
 
 // keep finds the revision to be kept if compact is called at given atRev.
+//
+// keep找到如果在atRev处执行compact的话，需要保留的版本
 func (ki *keyIndex) keep(atRev int64, available map[revision]struct{}) {
 	if ki.isEmpty() {
 		return
@@ -222,6 +246,7 @@ func (ki *keyIndex) keep(atRev int64, available map[revision]struct{}) {
 	}
 }
 
+// 找到generation的索引值，generations.revs的索引值，使得此版本是最大的小于等于atRev
 func (ki *keyIndex) doCompact(atRev int64, available map[revision]struct{}) (genIdx int, revIndex int) {
 	// walk until reaching the first revision smaller or equal to "atRev",
 	// and add the revision to the available map
@@ -235,6 +260,7 @@ func (ki *keyIndex) doCompact(atRev int64, available map[revision]struct{}) (gen
 
 	genIdx, g := 0, &ki.generations[0]
 	// find first generation includes atRev or created after atRev
+	// 查找第一个generation包含atRev或者在atRev版本之后创建
 	for genIdx < len(ki.generations)-1 {
 		if tomb := g.revs[len(g.revs)-1].main; tomb > atRev {
 			break
@@ -260,16 +286,20 @@ func (ki *keyIndex) findGeneration(rev int64) *generation {
 	cg := lastg
 
 	for cg >= 0 {
+		// 空的
 		if len(ki.generations[cg].revs) == 0 {
 			cg--
 			continue
 		}
 		g := ki.generations[cg]
+		// 如果不是最后一代，则需要比较g.revs最后一个版本。
+		// 如果最后一个版本都比rev要小，则返回空
 		if cg != lastg {
 			if tomb := g.revs[len(g.revs)-1].main; tomb <= rev {
 				return nil
 			}
 		}
+		// 最后一个rev(tomb) > rev, 第一个小于等于rev, 因此结果即此代generation
 		if g.revs[0].main <= rev {
 			return &ki.generations[cg]
 		}
@@ -310,6 +340,7 @@ func (ki *keyIndex) String() string {
 }
 
 // generation contains multiple revisions of a key.
+// generation包含一个key的多版本
 type generation struct {
 	ver     int64
 	created revision // when the generation is created (put in first revision).

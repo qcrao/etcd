@@ -88,6 +88,8 @@ type v3Manager struct {
 }
 
 // Save fetches snapshot from remote etcd server and saves data to target path.
+//
+// Save从远程server获取数据并且将数据保存到目标路径
 func (s *v3Manager) Save(ctx context.Context, cfg clientv3.Config, dbPath string) error {
 	if len(cfg.Endpoints) != 1 {
 		return fmt.Errorf("snapshot must be requested to one selected node, not multiple %v", cfg.Endpoints)
@@ -152,6 +154,8 @@ type Status struct {
 }
 
 // Status returns the snapshot file information.
+//
+// Status返回快照文件信息
 func (s *v3Manager) Status(dbPath string) (ds Status, err error) {
 	if _, err = os.Stat(dbPath); err != nil {
 		return ds, err
@@ -227,6 +231,8 @@ type RestoreConfig struct {
 }
 
 // Restore restores a new etcd data directory from given snapshot file.
+//
+// Restore从给定的快照文件恢复
 func (s *v3Manager) Restore(cfg RestoreConfig) error {
 	pURLs, err := types.NewURLs(cfg.PeerURLs)
 	if err != nil {
@@ -399,6 +405,8 @@ func (s *v3Manager) saveDB() error {
 }
 
 // saveWALAndSnap creates a WAL for the initial cluster
+//
+// saveWALAndSnap为初始化的集群新建一个wal文件
 func (s *v3Manager) saveWALAndSnap() error {
 	if err := fileutil.CreateDirAll(s.walDir); err != nil {
 		return err

@@ -50,6 +50,8 @@ func newFilePipeline(dir string, fileSize int64) *filePipeline {
 
 // Open returns a fresh file for writing. Rename the file before calling
 // Open again or there will be file collisions.
+//
+// Open返回一个新的可写文件。再次调用此函数时需要重命名此文件，否则会造成文件冲突
 func (fp *filePipeline) Open() (f *fileutil.LockedFile, err error) {
 	select {
 	case f = <-fp.filec:

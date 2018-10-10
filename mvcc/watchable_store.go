@@ -49,6 +49,8 @@ type watchableStore struct {
 	mu sync.RWMutex
 
 	// victims are watcher batches that were blocked on the watch channel
+	//
+	// victims是一组阻塞了的watcher
 	victims []watcherBatch
 	victimc chan struct{}
 
@@ -200,6 +202,8 @@ func (s *watchableStore) Restore(b backend.Backend) error {
 }
 
 // syncWatchersLoop syncs the watcher in the unsynced map every 100ms.
+//
+// syncWatchersLoop同步unsynced组里的watcher
 func (s *watchableStore) syncWatchersLoop() {
 	defer s.wg.Done()
 
@@ -217,6 +221,7 @@ func (s *watchableStore) syncWatchersLoop() {
 
 		waitDuration := 100 * time.Millisecond
 		// more work pending?
+		// 如果未同步的watcher数量不为0 且 之前未同步的watcher数量大于当前未同步的watcher数量
 		if unsyncedWatchers != 0 && lastUnsyncedWatchers > unsyncedWatchers {
 			// be fair to other store operations by yielding time taken
 			waitDuration = syncDuration
@@ -232,6 +237,8 @@ func (s *watchableStore) syncWatchersLoop() {
 
 // syncVictimsLoop tries to write precomputed watcher responses to
 // watchers that had a blocked watcher channel
+//
+// syncVictimsLoop同步ch被阻塞的watcher
 func (s *watchableStore) syncVictimsLoop() {
 	defer s.wg.Done()
 
@@ -243,11 +250,14 @@ func (s *watchableStore) syncVictimsLoop() {
 		isEmpty := len(s.victims) == 0
 		s.mu.RUnlock()
 
+		// 如果isEmpty非空，说明此次调用moveVictims没有同步成功，可能是所有的watcher的ch
+		// 均被阻塞，因此隔10ms之后再次重试
 		var tickc <-chan time.Time
 		if !isEmpty {
 			tickc = time.After(10 * time.Millisecond)
 		}
 
+		// 等待10ms 或者 有新的victims加入，则会再次尝试同步victims
 		select {
 		case <-tickc:
 		case <-s.victimc:
@@ -259,6 +269,7 @@ func (s *watchableStore) syncVictimsLoop() {
 
 // moveVictims tries to update watches with already pending event data
 func (s *watchableStore) moveVictims() (moved int) {
+	// 首先将s.victims全部拿出来
 	s.mu.Lock()
 	victims := s.victims
 	s.victims = nil
@@ -267,22 +278,26 @@ func (s *watchableStore) moveVictims() (moved int) {
 	var newVictim watcherBatch
 	for _, wb := range victims {
 		// try to send responses again
+		// 尝试将victims中的事件发送出去
 		for w, eb := range wb {
 			// watcher has observed the store up to, but not including, w.minRev
 			rev := w.minRev - 1
 			if w.send(WatchResponse{WatchID: w.id, Events: eb.evs, Revision: rev}) {
 				pendingEventsGauge.Add(float64(len(eb.evs)))
 			} else {
+				// 同步不成功，将此watcher/eb 添加到新的victims
 				if newVictim == nil {
 					newVictim = make(watcherBatch)
 				}
 				newVictim[w] = eb
 				continue
 			}
+			// 事件同步成功，则moved计算加1
 			moved++
 		}
 
 		// assign completed victim watchers to unsync/sync
+		// 将已完成同步的受害者加到已同步或未同步的group中
 		s.mu.Lock()
 		s.store.revMu.RLock()
 		curRev := s.store.currentRev
@@ -291,13 +306,20 @@ func (s *watchableStore) moveVictims() (moved int) {
 				// couldn't send watch response; stays victim
 				continue
 			}
+			// 同步成功的victim执行如下操作
+			// victim复位
 			w.victim = false
+
+			// 如果还未同步完
 			if eb.moreRev != 0 {
 				w.minRev = eb.moreRev
 			}
+
+			// 如果watcher的minRev小于当前版本，加入到unsynced组
 			if w.minRev <= curRev {
 				s.unsynced.add(w)
 			} else {
+				// 否则加入到synced组
 				slowWatcherGauge.Dec()
 				s.synced.add(w)
 			}
@@ -306,12 +328,14 @@ func (s *watchableStore) moveVictims() (moved int) {
 		s.mu.Unlock()
 	}
 
+	// 如果还有watcher ch 被阻塞，仍然添加到store的victims中
 	if len(newVictim) > 0 {
 		s.mu.Lock()
 		s.victims = append(s.victims, newVictim)
 		s.mu.Unlock()
 	}
 
+	// 返回事件同步成功的（ch未被阻塞的）
 	return moved
 }
 
@@ -320,6 +344,12 @@ func (s *watchableStore) moveVictims() (moved int) {
 //	2. iterate over the set to get the minimum revision and remove compacted watchers
 //	3. use minimum revision to get all key-value pairs and send those events to watchers
 //	4. remove synced watchers in set from unsynced group and move to synced group
+//
+// syncWatchers同步所有的unsynced watchers:
+// 1. 从unsynced watcher组里选择一组watcher
+// 2. 遍历这组watcher，获取最小的版本，并移除compacted为true的watcher
+// 3. 用最小的版本获取所有的kv，转化成事件，将事件发送给这些watcher
+// 4. 将这组watcher添加到synced group
 func (s *watchableStore) syncWatchers() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -337,6 +367,7 @@ func (s *watchableStore) syncWatchers() int {
 	curRev := s.store.currentRev
 	compactionRev := s.store.compactMainRev
 
+	// 从unsynced group里选择一组watcher，最小的版本
 	wg, minRev := s.unsynced.choose(maxWatchersPerSync, curRev, compactionRev)
 	minBytes, maxBytes := newRevBytes(), newRevBytes()
 	revToBytes(revision{main: minRev}, minBytes)
@@ -351,10 +382,11 @@ func (s *watchableStore) syncWatchers() int {
 	tx.Unlock()
 
 	var victims watcherBatch
-	wb := newWatcherBatch(wg, evs)
+	wb := newWatcherBatch(wg, evs) // watcher -> events
 	for w := range wg.watchers {
 		w.minRev = curRev + 1
 
+		// 此watcher没有需要同步的事件，移动synced监听组
 		eb, ok := wb[w]
 		if !ok {
 			// bring un-notified watcher to synced
@@ -363,10 +395,12 @@ func (s *watchableStore) syncWatchers() int {
 			continue
 		}
 
+		// 此watcher有更多的事件没有收到
 		if eb.moreRev != 0 {
 			w.minRev = eb.moreRev
 		}
 
+		// 向watcher发送监听事件，如果被阻塞，则加入到victims
 		if w.send(WatchResponse{WatchID: w.id, Events: eb.evs, Revision: curRev}) {
 			pendingEventsGauge.Add(float64(len(eb.evs)))
 		} else {
@@ -379,12 +413,16 @@ func (s *watchableStore) syncWatchers() int {
 		if w.victim {
 			victims[w] = eb
 		} else {
+			// 没有同步完
 			if eb.moreRev != 0 {
 				// stay unsynced; more to read
+				// 还有更多的事件没有向watcher发送
 				continue
 			}
+			// 同步完了，将watcher加到synced组中
 			s.synced.add(w)
 		}
+		// 从未同步的组里删掉此watcher
 		s.unsynced.delete(w)
 	}
 	s.addVictim(victims)
@@ -393,12 +431,15 @@ func (s *watchableStore) syncWatchers() int {
 	for _, v := range s.victims {
 		vsz += len(v)
 	}
+	// "未跟上进度的watcher总数"=未同步完的watcher + 阻塞了的watcher
 	slowWatcherGauge.Set(float64(s.unsynced.size() + vsz))
 
 	return s.unsynced.size()
 }
 
 // kvsToEvents gets all events for the watchers from all key-value pairs
+//
+// kvsToEvents获取被关注的事件
 func kvsToEvents(wg *watcherGroup, revs, vals [][]byte) (evs []mvccpb.Event) {
 	for i, v := range vals {
 		var kv mvccpb.KeyValue
@@ -423,6 +464,8 @@ func kvsToEvents(wg *watcherGroup, revs, vals [][]byte) (evs []mvccpb.Event) {
 
 // notify notifies the fact that given event at the given rev just happened to
 // watchers that watch on the key of the event.
+//
+// notify将给定版本的事件同步给synced watchers
 func (s *watchableStore) notify(rev int64, evs []mvccpb.Event) {
 	var victim watcherBatch
 	for w, eb := range newWatcherBatch(&s.synced, evs) {
@@ -446,6 +489,7 @@ func (s *watchableStore) notify(rev int64, evs []mvccpb.Event) {
 	s.addVictim(victim)
 }
 
+// 添加victim，其中的watcher的ch被阻塞
 func (s *watchableStore) addVictim(victim watcherBatch) {
 	if victim == nil {
 		return
@@ -459,6 +503,7 @@ func (s *watchableStore) addVictim(victim watcherBatch) {
 
 func (s *watchableStore) rev() int64 { return s.store.Rev() }
 
+// 当前watcher监听到的版本
 func (s *watchableStore) progress(w *watcher) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -470,6 +515,7 @@ func (s *watchableStore) progress(w *watcher) {
 	}
 }
 
+// 监听者
 type watcher struct {
 	// the watcher key
 	key []byte
@@ -478,9 +524,11 @@ type watcher struct {
 	end []byte
 
 	// victim is set when ch is blocked and undergoing victim processing
+	// victim为true时表示ch阻塞了并且正在执行victim的操作
 	victim bool
 
 	// compacted is set when the watcher is removed because of compaction
+	// compacted在watcher被移除之后会被置为true
 	compacted bool
 
 	// restore is true when the watcher is being restored from leader snapshot
@@ -489,6 +537,10 @@ type watcher struct {
 	// to the synced watcher
 	// "unsynced" watcher revision must always be <= current revision,
 	// except when the watcher were to be moved from "synced" watcher group
+	//
+	// restore在wathcer正从leader的快照文件中恢复的情况下置为true。
+	// 而这也意味着此watcher刚从synced组移到unsynced组，所有就有可能在第一次加入到synced组后有一个高的版本。
+	// unsynced组的watcher版本总是要小于等于当前版本，除非此watcher将要被移动到synced组。
 	restore bool
 
 	// minRev is the minimum revision update the watcher will accept
@@ -501,6 +553,7 @@ type watcher struct {
 	ch chan<- WatchResponse
 }
 
+// send将WatchResponse通过ch发送出去
 func (w *watcher) send(wr WatchResponse) bool {
 	progressEvent := len(wr.Events) == 0
 

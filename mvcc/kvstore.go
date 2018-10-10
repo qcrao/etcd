@@ -60,6 +60,9 @@ var restoreChunkKeys = 10000 // non-const for testing
 
 // ConsistentIndexGetter is an interface that wraps the Get method.
 // Consistent index is the offset of an entry in a consistent replicated log.
+//
+// ConsistentIndexGetter封装了get方法
+// Consistent index表示同步日志里的一条记录的offset
 type ConsistentIndexGetter interface {
 	// ConsistentIndex returns the consistent index of current executing entry.
 	ConsistentIndex() uint64
@@ -88,8 +91,10 @@ type store struct {
 	// Locked before locking read txn and released after locking.
 	revMu sync.RWMutex
 	// currentRev is the revision of the last completed transaction.
+	// currentRev是最后完成的事务的版本
 	currentRev int64
 	// compactMainRev is the main revision of the last compaction.
+	// compactMainRev是最后压缩的版本号
 	compactMainRev int64
 
 	// bytesBuf8 is a byte slice of length 8

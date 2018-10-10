@@ -63,6 +63,7 @@ func New(dir string) *Snapshotter {
 	}
 }
 
+// 对外暴露的保存快照的接口
 func (s *Snapshotter) SaveSnap(snapshot raftpb.Snapshot) error {
 	if raft.IsEmptySnap(snapshot) {
 		return nil
@@ -70,6 +71,7 @@ func (s *Snapshotter) SaveSnap(snapshot raftpb.Snapshot) error {
 	return s.save(&snapshot)
 }
 
+// 将快照结构体保存成快照文件
 func (s *Snapshotter) save(snapshot *raftpb.Snapshot) error {
 	start := time.Now()
 
@@ -96,6 +98,7 @@ func (s *Snapshotter) save(snapshot *raftpb.Snapshot) error {
 	return err
 }
 
+// 加载快照文件，返回第一个正常的快照文件
 func (s *Snapshotter) Load() (*raftpb.Snapshot, error) {
 	names, err := s.snapNames()
 	if err != nil {
@@ -113,6 +116,7 @@ func (s *Snapshotter) Load() (*raftpb.Snapshot, error) {
 	return snap, nil
 }
 
+// 加载快照文件
 func loadSnap(dir, name string) (*raftpb.Snapshot, error) {
 	fpath := filepath.Join(dir, name)
 	snap, err := Read(fpath)
@@ -123,6 +127,8 @@ func loadSnap(dir, name string) (*raftpb.Snapshot, error) {
 }
 
 // Read reads the snapshot named by snapname and returns the snapshot.
+//
+// Read读出以参数snapname命名的快照对象
 func Read(snapname string) (*raftpb.Snapshot, error) {
 	b, err := ioutil.ReadFile(snapname)
 	if err != nil {
@@ -162,6 +168,8 @@ func Read(snapname string) (*raftpb.Snapshot, error) {
 
 // snapNames returns the filename of the snapshots in logical time order (from newest to oldest).
 // If there is no available snapshots, an ErrNoSnapshot will be returned.
+//
+// snapNames按时间顺序返回所有的快照文件。如果没有合法的快照文件，将会返回一个ErrNoSnapshot文件
 func (s *Snapshotter) snapNames() ([]string, error) {
 	dir, err := os.Open(s.dir)
 	if err != nil {
@@ -180,6 +188,7 @@ func (s *Snapshotter) snapNames() ([]string, error) {
 	return snaps, nil
 }
 
+// 检查文件后缀
 func checkSuffix(names []string) []string {
 	snaps := []string{}
 	for i := range names {
@@ -196,6 +205,7 @@ func checkSuffix(names []string) []string {
 	return snaps
 }
 
+// 重命名有问题的文件
 func renameBroken(path string) {
 	brokenPath := path + ".broken"
 	if err := os.Rename(path, brokenPath); err != nil {

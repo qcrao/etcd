@@ -23,6 +23,9 @@ const revBytesLen = 8 + 1 + 8
 
 // A revision indicates modification of the key-value space.
 // The set of changes that share same main revision changes the key-value space atomically.
+//
+// revision反映了一次key-value的变化
+// main revision反映了一次原子操作的版本
 type revision struct {
 	// main is the main revision of a set of changes that happen atomically.
 	main int64
@@ -33,6 +36,7 @@ type revision struct {
 	sub int64
 }
 
+// 版本比较
 func (a revision) GreaterThan(b revision) bool {
 	if a.main > b.main {
 		return true

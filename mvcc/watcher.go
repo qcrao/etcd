@@ -67,9 +67,13 @@ type WatchStream interface {
 
 type WatchResponse struct {
 	// WatchID is the WatchID of the watcher this response sent to.
+	//
+	// WatchID表示此条影响信息的wathcher
 	WatchID WatchID
 
 	// Events contains all the events that needs to send.
+	//
+	// Events包含所有需要发送的事件
 	Events []mvccpb.Event
 
 	// Revision is the revision of the KV when the watchResponse is created.
@@ -85,6 +89,8 @@ type WatchResponse struct {
 
 // watchStream contains a collection of watchers that share
 // one streaming chan to send out watched events and other control events.
+//
+// watchStream包含了一个watcher集合，这些watcher共享一个流用于接收监听事件
 type watchStream struct {
 	watchable watchable
 	ch        chan WatchResponse

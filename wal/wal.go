@@ -51,6 +51,8 @@ var (
 	// The actual size might be larger than this. In general, the default
 	// value should be used, but this is defined as an exported variable
 	// so that tests can set a different segment size.
+	//
+	// WAL文件的预分配大小
 	SegmentSizeBytes int64 = 64 * 1000 * 1000 // 64MB
 
 	plog = capnslog.NewPackageLogger("github.com/coreos/etcd", "wal")
@@ -68,6 +70,11 @@ var (
 // A newly created WAL is in append mode, and ready for appending records.
 // A just opened WAL is in read mode, and ready for reading records.
 // The WAL will be ready for appending after reading out all the previous records.
+//
+// WAL文件是存储的逻辑代表
+// WAL处于读模式或者添加模式中的任一种
+// 一个新建的WAL文件处于添加模式，并且准备好向它添加记录
+// WAL文件在读出所有记录后，就可以向其添加记录
 type WAL struct {
 	dir string // the living directory of the underlay files
 
@@ -91,6 +98,9 @@ type WAL struct {
 
 // Create creates a WAL ready for appending records. The given metadata is
 // recorded at the head of each WAL file, and can be retrieved with ReadAll.
+//
+// Create创建一个新的WAL文件，创建完后可以直接添加records.
+// 给定的metadata可以添加到WAL文件中并且可以通过ReadAll函数获取
 func Create(dirpath string, metadata []byte) (*WAL, error) {
 	if Exist(dirpath) {
 		return nil, os.ErrExist
@@ -103,6 +113,7 @@ func Create(dirpath string, metadata []byte) (*WAL, error) {
 			return nil, err
 		}
 	}
+	// 递归地创建目录
 	if err := fileutil.CreateDirAll(tmpdirpath); err != nil {
 		return nil, err
 	}
@@ -115,6 +126,7 @@ func Create(dirpath string, metadata []byte) (*WAL, error) {
 	if _, err = f.Seek(0, io.SeekEnd); err != nil {
 		return nil, err
 	}
+	// 预分配64MB
 	if err = fileutil.Preallocate(f.File, SegmentSizeBytes, true); err != nil {
 		return nil, err
 	}
@@ -205,6 +217,11 @@ func (w *WAL) renameWalUnlock(tmpdirpath string) (*WAL, error) {
 // The returned WAL is ready to read and the first record will be the one after
 // the given snap. The WAL cannot be appended to before reading out all of its
 // previous records.
+//
+// Open在给定的snap处打开WAL文件
+// snap必须之前写入到了WAL文件，否则接下来的ReadAll操作会失败
+// 返回的WAL可读。并且第一条记录是给定的snap之后的
+// WAL文件只有在读出之前所有的记录才可以向其中添加记录
 func Open(dirpath string, snap walpb.Snapshot) (*WAL, error) {
 	w, err := openAtIndex(dirpath, snap, true)
 	if err != nil {
@@ -223,11 +240,14 @@ func OpenForRead(dirpath string, snap walpb.Snapshot) (*WAL, error) {
 }
 
 func openAtIndex(dirpath string, snap walpb.Snapshot, write bool) (*WAL, error) {
+	// 获取目录下所有的.wal文件
 	names, err := readWalNames(dirpath)
 	if err != nil {
 		return nil, err
 	}
 
+	// 找到term小于等于snap.index的wal文件
+	// 并且该文件之后的文件是按任期递增排序的
 	nameIndex, ok := searchIndex(names, snap.Index)
 	if !ok || !isValidSeq(names[nameIndex:]) {
 		return nil, ErrFileNotFound
@@ -401,6 +421,10 @@ func (w *WAL) ReadAll() (metadata []byte, state raftpb.HardState, ents []raftpb.
 // cut closes current file written and creates a new one ready to append.
 // cut first creates a temp wal file and writes necessary headers into it.
 // Then cut atomically rename temp wal file to a wal file.
+//
+// cut 关闭当前的文件并且创建一个新的文件准备好向后面添加记录
+// cut 首先创建一个临时文件并向其中写入必要的header
+// 然后cut原子性地将临时文件重命名为正式的wal文件
 func (w *WAL) cut() error {
 	// close old wal file; truncate to avoid wasting space if an early cut
 	off, serr := w.tail().Seek(0, io.SeekCurrent)
@@ -477,6 +501,7 @@ func (w *WAL) cut() error {
 	return nil
 }
 
+// 同步wal文件到磁盘
 func (w *WAL) sync() error {
 	if w.encoder != nil {
 		if err := w.encoder.flush(); err != nil {
@@ -569,6 +594,7 @@ func (w *WAL) Close() error {
 	return w.dirFile.Close()
 }
 
+// 将一条日志写入wal文件
 func (w *WAL) saveEntry(e *raftpb.Entry) error {
 	// TODO: add MustMarshalTo to reduce one allocation.
 	b := pbutil.MustMarshal(e)
@@ -580,6 +606,7 @@ func (w *WAL) saveEntry(e *raftpb.Entry) error {
 	return nil
 }
 
+// 将服务器状态写入wal文件
 func (w *WAL) saveState(s *raftpb.HardState) error {
 	if raft.IsEmptyHardState(*s) {
 		return nil
@@ -590,6 +617,9 @@ func (w *WAL) saveState(s *raftpb.HardState) error {
 	return w.encoder.encode(rec)
 }
 
+// 当raft模块收到一个proposal时就会调用Save方法完成持久化
+//
+// st是服务器状态，ents是日志条目
 func (w *WAL) Save(st raftpb.HardState, ents []raftpb.Entry) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -611,6 +641,7 @@ func (w *WAL) Save(st raftpb.HardState, ents []raftpb.Entry) error {
 		return err
 	}
 
+	// 定位到当前的offset
 	curOff, err := w.tail().Seek(0, io.SeekCurrent)
 	if err != nil {
 		return err
@@ -646,6 +677,7 @@ func (w *WAL) saveCrc(prevCrc uint32) error {
 	return w.encoder.encode(&walpb.Record{Type: crcType, Crc: prevCrc})
 }
 
+// 返回最一个锁定的file
 func (w *WAL) tail() *fileutil.LockedFile {
 	if len(w.locks) > 0 {
 		return w.locks[len(w.locks)-1]
