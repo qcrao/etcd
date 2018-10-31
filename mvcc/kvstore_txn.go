@@ -95,6 +95,7 @@ func (tw *storeTxnWrite) Put(key, value []byte, lease lease.LeaseID) int64 {
 
 func (tw *storeTxnWrite) End() {
 	// only update index if the txn modifies the mvcc state.
+	// 如果事务改变了mvcc的状态，则更新索引
 	if len(tw.changes) != 0 {
 		tw.s.saveIndex(tw.tx)
 		// hold revMu lock to prevent new read txns from opening until writeback.
@@ -108,6 +109,7 @@ func (tw *storeTxnWrite) End() {
 	tw.s.mu.RUnlock()
 }
 
+// 从底层存储取出所有版本的key-value
 func (tr *storeTxnRead) rangeKeys(key, end []byte, curRev int64, ro RangeOptions) (*RangeResult, error) {
 	rev := ro.Rev
 	if rev > curRev {
@@ -155,6 +157,8 @@ func (tw *storeTxnWrite) put(key, value []byte, leaseID lease.LeaseID) {
 
 	// if the key exists before, use its previous created and
 	// get its previous leaseID
+	//
+	// 如果key如果之前存在，则用之前的创建版本和租约id
 	_, created, ver, err := tw.s.kvindex.Get(key, rev)
 	if err == nil {
 		c = created.main
@@ -180,7 +184,9 @@ func (tw *storeTxnWrite) put(key, value []byte, leaseID lease.LeaseID) {
 		plog.Fatalf("cannot marshal event: %v", err)
 	}
 
+	// 将版本和对应的kv值存入底层存储
 	tw.tx.UnsafeSeqPut(keyBucketName, ibytes, d)
+	// 将key和对应的版本存入b-tree
 	tw.s.kvindex.Put(key, idxRev)
 	tw.changes = append(tw.changes, kv)
 
@@ -188,6 +194,7 @@ func (tw *storeTxnWrite) put(key, value []byte, leaseID lease.LeaseID) {
 		if tw.s.le == nil {
 			panic("no lessor to detach lease")
 		}
+		// 去掉key的老租约
 		err = tw.s.le.Detach(oldLease, []lease.LeaseItem{{Key: string(key)}})
 		if err != nil {
 			plog.Errorf("unexpected error from lease detach: %v", err)
@@ -197,6 +204,7 @@ func (tw *storeTxnWrite) put(key, value []byte, leaseID lease.LeaseID) {
 		if tw.s.le == nil {
 			panic("no lessor to attach lease")
 		}
+		// 添加新租约到key
 		err = tw.s.le.Attach(leaseID, []lease.LeaseItem{{Key: string(key)}})
 		if err != nil {
 			panic("unexpected error from lease Attach")
@@ -232,7 +240,9 @@ func (tw *storeTxnWrite) delete(key []byte, rev revision) {
 		plog.Fatalf("cannot marshal event: %v", err)
 	}
 
+	// 将版本和对应的kv值存入底层存储
 	tw.tx.UnsafeSeqPut(keyBucketName, ibytes, d)
+	// 将此Key增加一个墓碑
 	err = tw.s.kvindex.Tombstone(key, idxRev)
 	if err != nil {
 		plog.Fatalf("cannot tombstone an existing key (%s): %v", string(key), err)
@@ -243,6 +253,7 @@ func (tw *storeTxnWrite) delete(key []byte, rev revision) {
 	leaseID := tw.s.le.GetLease(item)
 
 	if leaseID != lease.NoLease {
+		// 解除租约
 		err = tw.s.le.Detach(leaseID, []lease.LeaseItem{item})
 		if err != nil {
 			plog.Errorf("cannot detach %v", err)

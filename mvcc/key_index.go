@@ -91,7 +91,7 @@ func (ki *keyIndex) put(main int64, sub int64) {
 		g.created = rev // 此generation被创建时key的修订版本
 	}
 	g.revs = append(g.revs, rev)
-	g.ver++ // 增加一个版本
+	g.ver++ // 增加一个版本. 表示在此代中的版本序号，如果删除了一个key，会开始新一代，此值会从0开始
 	ki.modified = rev // 最后修改的版本
 }
 
@@ -129,7 +129,7 @@ func (ki *keyIndex) tombstone(main int64, sub int64) error {
 // get gets the modified, created revision and version of the key that satisfies the given atRev.
 // Rev must be higher than or equal to the given atRev.
 //
-// get获取大于等于atRev最后编辑版本，创建版本，以及之后的版本数
+// get获取大于等于atRev的最后编辑版本，创建版本，以及之后的版本数
 func (ki *keyIndex) get(atRev int64) (modified, created revision, ver int64, err error) {
 	if ki.isEmpty() {
 		plog.Panicf("store.keyindex: unexpected get on empty keyIndex %s", string(ki.key))
@@ -142,6 +142,7 @@ func (ki *keyIndex) get(atRev int64) (modified, created revision, ver int64, err
 	// 找到主版本号小于当atRev的位置。n!=-1说明找到了
 	n := g.walk(func(rev revision) bool { return rev.main > atRev })
 	if n != -1 {
+		// 这块貌似有bug??? g.ver-n+1
 		return g.revs[n], g.created, g.ver - int64(len(g.revs)-n-1), nil
 	}
 

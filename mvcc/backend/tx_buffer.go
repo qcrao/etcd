@@ -35,6 +35,8 @@ func (txb *txBuffer) reset() {
 }
 
 // txWriteBuffer buffers writes of pending updates that have not yet committed.
+//
+// txWriteBuffer缓存没有提交的写
 type txWriteBuffer struct {
 	txBuffer
 	seq bool
@@ -94,6 +96,7 @@ type kv struct {
 }
 
 // bucketBuffer buffers key-value pairs that are pending commit.
+// bucketBuffer缓存没有提交的kv对
 type bucketBuffer struct {
 	buf []kv
 	// used tracks number of elements in use so buf can be reused without reallocation.
@@ -150,10 +153,12 @@ func (bb *bucketBuffer) add(k, v []byte) {
 }
 
 // merge merges data from bb into bbsrc.
+// 将bb里的数据聚合到bbsrc
 func (bb *bucketBuffer) merge(bbsrc *bucketBuffer) {
 	for i := 0; i < bbsrc.used; i++ {
 		bb.add(bbsrc.buf[i].key, bbsrc.buf[i].val)
 	}
+	// bb之前为空
 	if bb.used == bbsrc.used {
 		return
 	}
@@ -164,6 +169,7 @@ func (bb *bucketBuffer) merge(bbsrc *bucketBuffer) {
 	sort.Stable(bb)
 
 	// remove duplicates, using only newest update
+	// 移除中间连续相同的元素
 	widx := 0
 	for ridx := 1; ridx < bb.used; ridx++ {
 		if !bytes.Equal(bb.buf[ridx].key, bb.buf[widx].key) {

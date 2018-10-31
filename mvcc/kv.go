@@ -54,6 +54,8 @@ type ReadView interface {
 
 // TxnRead represents a read-only transaction with operations that will not
 // block other read transactions.
+//
+// TxnRead代表一个只读事务，并且不会阻塞其他的读事务
 type TxnRead interface {
 	ReadView
 	// End marks the transaction is complete and ready to commit.
@@ -75,14 +77,21 @@ type WriteView interface {
 	// id.
 	// A put also increases the rev of the store, and generates one event in the event history.
 	// The returned rev is the current revision of the KV when the operation is executed.
+	//
+	// Put 将给定的key, val写入store. Put还将key-value并联一个租约。
+	// Put还会增加store的版本，并且会生成一个事件
+	// 返回的版本是当Put执行时的KV版本
 	Put(key, value []byte, lease lease.LeaseID) (rev int64)
 }
 
 // TxnWrite represents a transaction that can modify the store.
+//
+// TxnWrite代表一个可以修改存储的事务
 type TxnWrite interface {
 	TxnRead
 	WriteView
 	// Changes gets the changes made since opening the write txn.
+	// Changes获取此次写事件带来的改变
 	Changes() []mvccpb.KeyValue
 }
 
@@ -117,9 +126,13 @@ type KV interface {
 	Compact(rev int64) (<-chan struct{}, error)
 
 	// Commit commits outstanding txns into the underlying backend.
+	//
+	// Commit将事务提交到底层的存储
 	Commit()
 
 	// Restore restores the KV store from a backend.
+	//
+	// Restore从底层存储恢复
 	Restore(b backend.Backend) error
 	Close() error
 }
@@ -131,9 +144,13 @@ type WatchableKV interface {
 }
 
 // Watchable is the interface that wraps the NewWatchStream function.
+//
+// Watchable是一个包装了NewWatchStream函数的接口
 type Watchable interface {
 	// NewWatchStream returns a WatchStream that can be used to
 	// watch events happened or happening on the KV.
+	//
+	// NewWatchStream返回一个监控流可以被用于监控已发生或者将要发生的KV事件
 	NewWatchStream() WatchStream
 }
 

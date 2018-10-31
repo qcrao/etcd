@@ -74,14 +74,20 @@ type store struct {
 
 	// consistentIndex caches the "consistent_index" key's value. Accessed
 	// through atomics so must be 64-bit aligned.
+	//
+	// consistentIndex缓存"consistent_index" key's. 当前已经同步的索引
+	// 原子操作，所以是64位
 	consistentIndex uint64
 
 	// mu read locks for txns and write locks for non-txn store changes.
+	// mu读锁保护事务，写锁保护非事务性的变化
 	mu sync.RWMutex
 
 	ig ConsistentIndexGetter
 
+	// 背后是boltdb
 	b       backend.Backend
+	// 背后是b-tree
 	kvindex index
 
 	le lease.Lessor
@@ -108,6 +114,8 @@ type store struct {
 
 // NewStore returns a new store. It is useful to create a store inside
 // mvcc pkg. It should only be used for testing externally.
+//
+// NewStore在mvcc包内有用，对外只能在测试时使用
 func NewStore(b backend.Backend, le lease.Lessor, ig ConsistentIndexGetter) *store {
 	s := &store{
 		b:       b,
@@ -347,6 +355,8 @@ func (s *store) restore() error {
 	// index keys concurrently as they're loaded in from tx
 	keysGauge.Set(0)
 	rkvc, revc := restoreIntoIndex(s.kvindex)
+
+	// 循环将所有的key-value都取出来
 	for {
 		keys, vals := tx.UnsafeRange(keyBucketName, min, max, int64(restoreChunkKeys))
 		if len(keys) == 0 {
@@ -354,9 +364,14 @@ func (s *store) restore() error {
 		}
 		// rkvc blocks if the total pending keys exceeds the restore
 		// chunk size to keep keys from consuming too much memory.
+		//
+		// keys代表版本，vals代表mvccpb.KeyValue
+		// 将keys, vals均取出来重放
 		restoreChunk(rkvc, keys, vals, keyToLease)
 		if len(keys) < restoreChunkKeys {
 			// partial set implies final set
+			//
+			// 这一次把底层存储的keys取完了，所以不取了
 			break
 		}
 		// next set begins after where this one ended
@@ -377,6 +392,7 @@ func (s *store) restore() error {
 		scheduledCompact = 0
 	}
 
+	// 更新租约
 	for key, lid := range keyToLease {
 		if s.le == nil {
 			panic("no lessor to attach lease")
@@ -389,6 +405,7 @@ func (s *store) restore() error {
 
 	tx.Unlock()
 
+	// 压缩
 	if scheduledCompact != 0 {
 		s.Compact(scheduledCompact)
 		plog.Printf("resume scheduled compaction at %d", scheduledCompact)
@@ -403,10 +420,12 @@ type revKeyValue struct {
 	kstr string
 }
 
+// 从底层存储恢复数据
 func restoreIntoIndex(idx index) (chan<- revKeyValue, <-chan int64) {
 	rkvc, revc := make(chan revKeyValue, restoreChunkKeys), make(chan int64, 1)
 	go func() {
 		currentRev := int64(1)
+		// 最后会将最后一次事务的事务id塞到channel里
 		defer func() { revc <- currentRev }()
 		// restore the tree index from streaming the unordered index.
 		kiCache := make(map[string]*keyIndex, restoreChunkKeys)
@@ -432,6 +451,7 @@ func restoreIntoIndex(idx index) (chan<- revKeyValue, <-chan int64) {
 			}
 			rev := bytesToRev(rkv.key)
 			currentRev = rev.main
+			// 在存储中已经有这个key的索引了
 			if ok {
 				if isTombstone(rkv.key) {
 					ki.tombstone(rev.main, rev.sub)
@@ -448,6 +468,7 @@ func restoreIntoIndex(idx index) (chan<- revKeyValue, <-chan int64) {
 	return rkvc, revc
 }
 
+// 取出所有key的租约池
 func restoreChunk(kvc chan<- revKeyValue, keys, vals [][]byte, keyToLease map[string]lease.LeaseID) {
 	for i, key := range keys {
 		rkv := revKeyValue{key: key}
@@ -472,6 +493,7 @@ func (s *store) Close() error {
 	return nil
 }
 
+// 将索引写入底层
 func (s *store) saveIndex(tx backend.BatchTx) {
 	if s.ig == nil {
 		return
@@ -481,10 +503,13 @@ func (s *store) saveIndex(tx backend.BatchTx) {
 	binary.BigEndian.PutUint64(bs, ci)
 	// put the index into the underlying backend
 	// tx has been locked in TxnBegin, so there is no need to lock it again
+	//
+	// put将索引写入底层存储
 	tx.UnsafePut(metaBucketName, consistentIndexKeyName, bs)
 	atomic.StoreUint64(&s.consistentIndex, ci)
 }
 
+// 获取已经提交的日志索引
 func (s *store) ConsistentIndex() uint64 {
 	if ci := atomic.LoadUint64(&s.consistentIndex); ci > 0 {
 		return ci
@@ -502,6 +527,8 @@ func (s *store) ConsistentIndex() uint64 {
 }
 
 // appendMarkTombstone appends tombstone mark to normal revision bytes.
+//
+// appendMarkTombstone增加一个墓碑标志byte
 func appendMarkTombstone(b []byte) []byte {
 	if len(b) != revBytesLen {
 		plog.Panicf("cannot append mark to non normal revision bytes")

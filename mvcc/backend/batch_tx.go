@@ -53,6 +53,7 @@ func (t *batchTx) UnsafeCreateBucket(name []byte) {
 }
 
 // UnsafePut must be called holding the lock on the tx.
+// UnsafePut在被调用时必须拥有锁
 func (t *batchTx) UnsafePut(bucketName []byte, key []byte, value []byte) {
 	t.unsafePut(bucketName, key, value, false)
 }
@@ -87,6 +88,8 @@ func (t *batchTx) UnsafeRange(bucketName, key, endKey []byte, limit int64) ([][]
 	return unsafeRange(bucket.Cursor(), key, endKey, limit)
 }
 
+// endKey是闭区间
+// 先定位到key位置处，再往后遍历，并调用比较函数
 func unsafeRange(c *bolt.Cursor, key, endKey []byte, limit int64) (keys [][]byte, vs [][]byte) {
 	if limit <= 0 {
 		limit = math.MaxInt64
@@ -134,6 +137,7 @@ func unsafeForEach(tx *bolt.Tx, bucket []byte, visitor func(k, v []byte) error) 
 }
 
 // Commit commits a previous tx and begins a new writable one.
+// Commit将前一个事务提交并且开始一个新的写事务
 func (t *batchTx) Commit() {
 	t.Lock()
 	t.commit(false)
@@ -141,6 +145,7 @@ func (t *batchTx) Commit() {
 }
 
 // CommitAndStop commits the previous tx and does not create a new one.
+// CommitAndStop提交一个之前的写事务并且不会再创建一个新的
 func (t *batchTx) CommitAndStop() {
 	t.Lock()
 	t.commit(true)

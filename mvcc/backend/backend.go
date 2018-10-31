@@ -63,6 +63,7 @@ type Backend interface {
 	Close() error
 }
 
+// 快照
 type Snapshot interface {
 	// Size gets the size of the snapshot.
 	Size() int64
@@ -72,17 +73,21 @@ type Snapshot interface {
 	Close() error
 }
 
+// 底层存储
 type backend struct {
 	// size and commits are used with atomic operations so they must be
 	// 64-bit aligned, otherwise 32-bit tests will crash
 
 	// size is the number of bytes in the backend
+	// 后端数据库占用的字节数
 	size int64
 
 	// sizeInUse is the number of bytes actually used in the backend
+	// 后端数据库实际使用的字节数
 	sizeInUse int64
 
 	// commits counts number of commits since start
+	// 提交事务的次数
 	commits int64
 
 	mu sync.RWMutex
@@ -104,6 +109,7 @@ type BackendConfig struct {
 	// BatchInterval is the maximum time before flushing the BatchTx.
 	BatchInterval time.Duration
 	// BatchLimit is the maximum puts before flushing the BatchTx.
+	// 设置为1时，只要有写，就会提交
 	BatchLimit int
 	// MmapSize is the number of bytes to mmap for the backend.
 	MmapSize uint64
@@ -165,6 +171,9 @@ func newBackend(bcfg BackendConfig) *backend {
 // BatchTx returns the current batch tx in coalescer. The tx can be used for read and
 // write operations. The write result can be retrieved within the same tx immediately.
 // The write result is isolated with other txs until the current one get committed.
+//
+// 返回当前的事务。此事务可读写。写的结果可以通过此事务马上能获取到。
+// 但是此事务的写和其他事务的写是隔离的，除非事务提交
 func (b *backend) BatchTx() BatchTx {
 	return b.batchTx
 }
@@ -172,15 +181,19 @@ func (b *backend) BatchTx() BatchTx {
 func (b *backend) ReadTx() ReadTx { return b.readTx }
 
 // ForceCommit forces the current batching tx to commit.
+// 强制提交
 func (b *backend) ForceCommit() {
 	b.batchTx.Commit()
 }
 
+// 实际仅开启了一个计时器。返回的stopc用于接收停止信号，done用于通知其他函数快照已完成
+// 一般先调此函数，随后会调Snapshot.WriteTo()方法，将快照写入文件
 func (b *backend) Snapshot() Snapshot {
 	b.batchTx.Commit()
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	// 直接开启底层数据库的事务
 	tx, err := b.db.Begin(false)
 	if err != nil {
 		plog.Fatalf("cannot begin tx (%s)", err)
@@ -192,6 +205,8 @@ func (b *backend) Snapshot() Snapshot {
 		defer close(donec)
 		// sendRateBytes is based on transferring snapshot data over a 1 gigabit/s connection
 		// assuming a min tcp throughput of 100MB/s.
+		//
+		// sendRateBytes基于转移快照数据在1gbit/s，tcp连接吞吐在100MB/s
 		var sendRateBytes int64 = 100 * 1024 * 1014
 		warningTimeout := time.Duration(int64((float64(dbBytes) / float64(sendRateBytes)) * float64(time.Second)))
 		if warningTimeout < minSnapshotWarningTimeout {
@@ -219,19 +234,26 @@ type IgnoreKey struct {
 	Key    string
 }
 
+// 对bucket里的每个key/value对执行hash
 func (b *backend) Hash(ignores map[IgnoreKey]struct{}) (uint32, error) {
 	h := crc32.New(crc32.MakeTable(crc32.Castagnoli))
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+
+	// 开启一个只读事务，出错或事务结束，会进行回滚（从数据库层面，会关掉此事务）。
 	err := b.db.View(func(tx *bolt.Tx) error {
+		// 游标只在事务未关闭的情况下有效
 		c := tx.Cursor()
+		// c是根游标，它指向的是buckets。所以它返回空val, key表示bucket
 		for next, _ := c.First(); next != nil; next, _ = c.Next() {
 			b := tx.Bucket(next)
 			if b == nil {
 				return fmt.Errorf("cannot get hash of bucket %s", string(next))
 			}
+			// 先写入bucket
 			h.Write(next)
+			// 再将bucket里的每个k-v写入。并且会忽略ignores里的key
 			b.ForEach(func(k, v []byte) error {
 				bk := IgnoreKey{Bucket: string(next), Key: string(k)}
 				if _, ok := ignores[bk]; !ok {
@@ -248,6 +270,7 @@ func (b *backend) Hash(ignores map[IgnoreKey]struct{}) (uint32, error) {
 		return 0, err
 	}
 
+	// 返回整个底层存储的hash值
 	return h.Sum32(), nil
 }
 
@@ -259,6 +282,7 @@ func (b *backend) SizeInUse() int64 {
 	return atomic.LoadInt64(&b.sizeInUse)
 }
 
+// 每隔b.batchInterval时间，执行一次commit
 func (b *backend) run() {
 	defer close(b.donec)
 	t := time.NewTimer(b.batchInterval)
@@ -282,6 +306,7 @@ func (b *backend) Close() error {
 }
 
 // Commits returns total number of commits since start
+// 返回开机以来提交数
 func (b *backend) Commits() int64 {
 	return atomic.LoadInt64(&b.commits)
 }
@@ -290,6 +315,7 @@ func (b *backend) Defrag() error {
 	return b.defrag()
 }
 
+// 整理磁盘碎片
 func (b *backend) defrag() error {
 	now := time.Now()
 	
@@ -411,9 +437,11 @@ func defragdb(odb, tmpdb *bolt.DB, limit int) error {
 		})
 	}
 
+	// 将所有变化都同步到磁盘上
 	return tmptx.Commit()
 }
 
+// 开启一个事务
 func (b *backend) begin(write bool) *bolt.Tx {
 	b.mu.RLock()
 	tx := b.unsafeBegin(write)
@@ -427,6 +455,7 @@ func (b *backend) begin(write bool) *bolt.Tx {
 	return tx
 }
 
+// 开启一个数据库事务
 func (b *backend) unsafeBegin(write bool) *bolt.Tx {
 	tx, err := b.db.Begin(write)
 	if err != nil {
@@ -436,11 +465,15 @@ func (b *backend) unsafeBegin(write bool) *bolt.Tx {
 }
 
 // NewTmpBackend creates a backend implementation for testing.
+//
+// 用于测试
 func NewTmpBackend(batchInterval time.Duration, batchLimit int) (*backend, string) {
+	// dir会带上一个随机后缀，如：/var/folders/2w/tt1p_4td3yq9xlbl7c2t4jn00000gn/T/etcd_backend_test719121267
 	dir, err := ioutil.TempDir(os.TempDir(), "etcd_backend_test")
 	if err != nil {
 		plog.Fatal(err)
 	}
+	fmt.Println("dir: ", dir)
 	tmpPath := filepath.Join(dir, "database")
 	bcfg := DefaultBackendConfig()
 	bcfg.Path, bcfg.BatchInterval, bcfg.BatchLimit = tmpPath, batchInterval, batchLimit

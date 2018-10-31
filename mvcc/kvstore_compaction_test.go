@@ -15,6 +15,7 @@
 package mvcc
 
 import (
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -92,6 +93,7 @@ func TestScheduleCompaction(t *testing.T) {
 		}
 		tx.Unlock()
 
+		//fmt.Println(tmpPath)
 		cleanup(s, b, tmpPath)
 	}
 }
@@ -103,10 +105,17 @@ func TestCompactAllAndRestore(t *testing.T) {
 
 	s0.Put([]byte("foo"), []byte("bar"), lease.NoLease)
 	s0.Put([]byte("foo"), []byte("bar1"), lease.NoLease)
+	s0.Put([]byte("qcrao"), []byte("cool"), lease.NoLease)
 	s0.Put([]byte("foo"), []byte("bar2"), lease.NoLease)
-	s0.DeleteRange([]byte("foo"), nil)
+	//s0.DeleteRange([]byte("foo"), nil)
+
+	s0.Put([]byte("qcrao"), []byte("cool1"), lease.NoLease)
+	s0.DeleteRange([]byte("qcrao"), nil)
+	s0.Put([]byte("qcrao"), []byte("cool2"), lease.NoLease)
+
 
 	rev := s0.Rev()
+	fmt.Println("cur rev: ", rev)
 	// compact all keys
 	done, err := s0.Compact(rev)
 	if err != nil {
@@ -128,8 +137,11 @@ func TestCompactAllAndRestore(t *testing.T) {
 	if s1.Rev() != rev {
 		t.Errorf("rev = %v, want %v", s1.Rev(), rev)
 	}
-	_, err = s1.Range([]byte("foo"), nil, RangeOptions{})
+	vals, err := s1.Range([]byte("foo"), nil, RangeOptions{})
 	if err != nil {
 		t.Errorf("unexpect range error %v", err)
 	}
+
+	fmt.Printf("all foo revs: %+v", vals)
+
 }

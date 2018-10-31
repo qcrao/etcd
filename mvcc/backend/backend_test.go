@@ -25,9 +25,11 @@ import (
 	bolt "github.com/coreos/bbolt"
 )
 
+// 测试底层数据库的关闭
 func TestBackendClose(t *testing.T) {
 	b, tmpPath := NewTmpBackend(time.Hour, 10000)
 	defer os.Remove(tmpPath)
+	fmt.Println("tmpPath: ", tmpPath)
 
 	// check close could work
 	done := make(chan struct{})
@@ -45,6 +47,11 @@ func TestBackendClose(t *testing.T) {
 	}
 }
 
+// 测试快照功能
+// 1. 先打开数据库事务，然后往里写入key，提交
+// 2. 写快照到文件
+// 3. 从2步的文件新建一个数据库后端
+// 4. 遍历新数据库，获取写入的key
 func TestBackendSnapshot(t *testing.T) {
 	b, tmpPath := NewTmpBackend(time.Hour, 10000)
 	defer cleanup(b, tmpPath)
@@ -53,6 +60,7 @@ func TestBackendSnapshot(t *testing.T) {
 	tx.Lock()
 	tx.UnsafeCreateBucket([]byte("test"))
 	tx.UnsafePut([]byte("test"), []byte("foo"), []byte("bar"))
+	tx.UnsafePut([]byte("test"), []byte("goo"), []byte("bar1"))
 	tx.Unlock()
 	b.ForceCommit()
 
@@ -77,12 +85,14 @@ func TestBackendSnapshot(t *testing.T) {
 	newTx := b.BatchTx()
 	newTx.Lock()
 	ks, _ := newTx.UnsafeRange([]byte("test"), []byte("foo"), []byte("goo"), 0)
+	fmt.Printf("ks: %+v\n", ks)
 	if len(ks) != 1 {
 		t.Errorf("len(kvs) = %d, want 1", len(ks))
 	}
 	newTx.Unlock()
 }
 
+// 测试提交时间间隔
 func TestBackendBatchIntervalCommit(t *testing.T) {
 	// start backend with super short batch interval so
 	// we do not need to wait long before commit to happen.
@@ -98,7 +108,9 @@ func TestBackendBatchIntervalCommit(t *testing.T) {
 	tx.Unlock()
 
 	for i := 0; i < 10; i++ {
+		fmt.Println("====")
 		if b.Commits() >= pc+1 {
+			fmt.Println("break")
 			break
 		}
 		time.Sleep(time.Duration(i*100) * time.Millisecond)
@@ -112,6 +124,7 @@ func TestBackendBatchIntervalCommit(t *testing.T) {
 			return nil
 		}
 		v := bucket.Get([]byte("foo"))
+		fmt.Println("v: ", string(v))
 		if v == nil {
 			t.Errorf("foo key failed to written in backend")
 		}
@@ -119,6 +132,7 @@ func TestBackendBatchIntervalCommit(t *testing.T) {
 	})
 }
 
+// 测试磁盘碎片整理
 func TestBackendDefrag(t *testing.T) {
 	b, tmpPath := NewDefaultTmpBackend()
 	defer cleanup(b, tmpPath)
@@ -149,6 +163,7 @@ func TestBackendDefrag(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// 回收磁盘碎片
 	err = b.Defrag()
 	if err != nil {
 		t.Fatal(err)
@@ -158,11 +173,13 @@ func TestBackendDefrag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fmt.Println(oh, nh)
 	if oh != nh {
 		t.Errorf("hash = %v, want %v", nh, oh)
 	}
 
 	nsize := b.Size()
+	fmt.Println("size, nsize: ", size, nsize)
 	if nsize >= size {
 		t.Errorf("new size = %v, want < %d", nsize, size)
 	}
@@ -174,9 +191,11 @@ func TestBackendDefrag(t *testing.T) {
 	tx.UnsafePut([]byte("test"), []byte("more"), []byte("bar"))
 	tx.Unlock()
 	b.ForceCommit()
+	fmt.Println(b.Size())
 }
 
 // TestBackendWriteback ensures writes are stored to the read txn on write txn unlock.
+// 确保写事务完成后能从读事务读取到
 func TestBackendWriteback(t *testing.T) {
 	b, tmpPath := NewDefaultTmpBackend()
 	defer cleanup(b, tmpPath)
@@ -252,6 +271,8 @@ func TestBackendWriteback(t *testing.T) {
 
 // TestBackendWritebackForEach checks that partially written / buffered
 // data is visited in the same order as fully committed data.
+//
+// 确保未提交的事务也能按正确的顺序读取到
 func TestBackendWritebackForEach(t *testing.T) {
 	b, tmpPath := NewTmpBackend(time.Hour, 10000)
 	defer cleanup(b, tmpPath)
@@ -295,6 +316,7 @@ func TestBackendWritebackForEach(t *testing.T) {
 	tx.UnsafeForEach([]byte("key"), getSeq)
 	tx.Unlock()
 
+	fmt.Println(seq)
 	if seq != partialSeq {
 		t.Fatalf("expected %q, got %q", seq, partialSeq)
 	}

@@ -15,6 +15,7 @@
 package backend
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -161,6 +162,7 @@ func TestBatchTxCommit(t *testing.T) {
 			return nil
 		}
 		v := bucket.Get([]byte("foo"))
+		fmt.Println("v: ", v)
 		if v == nil {
 			t.Errorf("foo key failed to written in backend")
 		}

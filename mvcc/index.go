@@ -41,12 +41,15 @@ type treeIndex struct {
 	tree *btree.BTree
 }
 
+// 新建一个btree，每个node包含31-33个items和32-34个孩子
 func newTreeIndex() index {
 	return &treeIndex{
 		tree: btree.New(32),
 	}
 }
 
+// 将一个key加到btree中
+// 每个key对应一个btree中的节点
 func (ti *treeIndex) Put(key []byte, rev revision) {
 	keyi := &keyIndex{key: key}
 
@@ -62,6 +65,7 @@ func (ti *treeIndex) Put(key []byte, rev revision) {
 	okeyi.put(rev.main, rev.sub)
 }
 
+// 获取给定key在给定版本atRev的最后编辑版本，创建版本，以及之后的版本数
 func (ti *treeIndex) Get(key []byte, atRev int64) (modified, created revision, ver int64, err error) {
 	keyi := &keyIndex{key: key}
 	ti.RLock()
@@ -78,6 +82,7 @@ func (ti *treeIndex) KeyIndex(keyi *keyIndex) *keyIndex {
 	return ti.keyIndex(keyi)
 }
 
+// 根据只有一个key的keyIndex, 找到真正的keyIndex
 func (ti *treeIndex) keyIndex(keyi *keyIndex) *keyIndex {
 	if item := ti.tree.Get(keyi); item != nil {
 		return item.(*keyIndex)
@@ -91,7 +96,9 @@ func (ti *treeIndex) visit(key, end []byte, f func(ki *keyIndex)) {
 	ti.RLock()
 	defer ti.RUnlock()
 
+	// 此处会一直调func, 直到返回false
 	ti.tree.AscendGreaterOrEqual(keyi, func(item btree.Item) bool {
+		// 当endi空非空，且大于endi
 		if len(endi.key) > 0 && !item.Less(endi) {
 			return false
 		}
@@ -100,6 +107,7 @@ func (ti *treeIndex) visit(key, end []byte, f func(ki *keyIndex)) {
 	})
 }
 
+// // 获取给定key在给定版本atRev之后的key字典序小于end的版本
 func (ti *treeIndex) Revisions(key, end []byte, atRev int64) (revs []revision) {
 	if end == nil {
 		rev, _, _, err := ti.Get(key, atRev)
@@ -108,6 +116,7 @@ func (ti *treeIndex) Revisions(key, end []byte, atRev int64) (revs []revision) {
 		}
 		return []revision{rev}
 	}
+	// func 函数找到相应的版本添加到revs中
 	ti.visit(key, end, func(ki *keyIndex) {
 		if rev, _, _, err := ki.get(atRev); err == nil {
 			revs = append(revs, rev)
@@ -116,6 +125,7 @@ func (ti *treeIndex) Revisions(key, end []byte, atRev int64) (revs []revision) {
 	return revs
 }
 
+// 遍历[key, end)，找到相应的key及最后编辑版本
 func (ti *treeIndex) Range(key, end []byte, atRev int64) (keys [][]byte, revs []revision) {
 	if end == nil {
 		rev, _, _, err := ti.Get(key, atRev)
@@ -133,6 +143,7 @@ func (ti *treeIndex) Range(key, end []byte, atRev int64) (keys [][]byte, revs []
 	return keys, revs
 }
 
+// 调用keyIndex的tombstone
 func (ti *treeIndex) Tombstone(key []byte, rev revision) error {
 	keyi := &keyIndex{key: key}
 
@@ -150,6 +161,8 @@ func (ti *treeIndex) Tombstone(key []byte, rev revision) error {
 // RangeSince returns all revisions from key(including) to end(excluding)
 // at or after the given rev. The returned slice is sorted in the order
 // of revision.
+//
+// RangeSince返回所有的key范围为[key, end)，版本号大于等于给定rev 的所有版本（主版本号相同的只返回子版本号最大的那个）
 func (ti *treeIndex) RangeSince(key, end []byte, rev int64) []revision {
 	keyi := &keyIndex{key: key}
 
@@ -199,6 +212,8 @@ func (ti *treeIndex) Compact(rev int64) map[revision]struct{} {
 }
 
 // Keep finds all revisions to be kept for a Compaction at the given rev.
+//
+// Keep找到Compaction命令需要保持的版本
 func (ti *treeIndex) Keep(rev int64) map[revision]struct{} {
 	available := make(map[revision]struct{})
 	ti.RLock()
@@ -222,6 +237,7 @@ func compactIndex(rev int64, available map[revision]struct{}, emptyki *[]*keyInd
 	}
 }
 
+// 比较两个索引是否相等
 func (ti *treeIndex) Equal(bi index) bool {
 	b := bi.(*treeIndex)
 
@@ -244,6 +260,7 @@ func (ti *treeIndex) Equal(bi index) bool {
 	return equal
 }
 
+// 向btree中插入一条索引
 func (ti *treeIndex) Insert(ki *keyIndex) {
 	ti.Lock()
 	defer ti.Unlock()

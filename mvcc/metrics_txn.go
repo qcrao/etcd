@@ -18,6 +18,7 @@ import (
 	"github.com/coreos/etcd/lease"
 )
 
+// 一次事务的监控对象
 type metricsTxnWrite struct {
 	TxnWrite
 	ranges  uint
@@ -50,6 +51,7 @@ func (tw *metricsTxnWrite) Put(key, value []byte, lease lease.LeaseID) (rev int6
 
 func (tw *metricsTxnWrite) End() {
 	defer tw.TxnWrite.End()
+	// 至少有两项操作，才Inc()
 	if sum := tw.ranges + tw.puts + tw.deletes; sum > 1 {
 		txnCounter.Inc()
 	}

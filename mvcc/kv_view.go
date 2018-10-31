@@ -18,6 +18,7 @@ import (
 	"github.com/coreos/etcd/lease"
 )
 
+// 这里相当于
 type readView struct{ kv KV }
 
 func (rv *readView) FirstRev() int64 {

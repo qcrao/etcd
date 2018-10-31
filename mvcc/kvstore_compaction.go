@@ -19,6 +19,7 @@ import (
 	"time"
 )
 
+// 真正执行压缩的地方，将相应的版本删除
 func (s *store) scheduleCompaction(compactMainRev int64, keep map[revision]struct{}) bool {
 	totalStart := time.Now()
 	defer dbCompactionTotalDurations.Observe(float64(time.Since(totalStart) / time.Millisecond))
