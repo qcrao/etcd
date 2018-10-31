@@ -31,6 +31,8 @@ const (
 	// proxy needs to create one new connection when handling each request in
 	// the delta, which is bad because the creation consumes resource and
 	// may eat up ephemeral ports.
+	//
+	// 代理和后端机器最大空闲连接数。可同时服务128个请求。
 	DefaultMaxIdleConnsPerHost = 128
 )
 
@@ -38,11 +40,16 @@ const (
 // which client requests should be proxied. This function will be queried
 // periodically by the proxy Handler to refresh the set of available
 // backends.
+//
+// 返回当前代理地址。代理handler会周期地更新可用的后端服务
 type GetProxyURLs func() []string
 
 // NewHandler creates a new HTTP handler, listening on the given transport,
 // which will proxy requests to an etcd cluster.
 // The handler will periodically update its view of the cluster.
+//
+// 新建一个新的HTTP处理器，在给定的transport上进行监听
+// 处理器会周期性更新它可见的后端
 func NewHandler(t *http.Transport, urlsFunc GetProxyURLs, failureWait time.Duration, refreshInterval time.Duration) http.Handler {
 	if t.TLSClientConfig != nil {
 		// Enable http2, see Issue 5033.
@@ -65,6 +72,8 @@ func NewHandler(t *http.Transport, urlsFunc GetProxyURLs, failureWait time.Durat
 }
 
 // NewReadonlyHandler wraps the given HTTP handler to allow only GET requests
+//
+// NewReadonlyHandler将HTTP handler包装成只允许GET请求
 func NewReadonlyHandler(hdlr http.Handler) http.Handler {
 	readonly := readonlyHandlerFunc(hdlr)
 	return http.HandlerFunc(readonly)
@@ -81,7 +90,9 @@ func readonlyHandlerFunc(next http.Handler) func(http.ResponseWriter, *http.Requ
 	}
 }
 
+// 获取当前系统可用的etcd节点
 func (p *reverseProxy) configHandler(w http.ResponseWriter, r *http.Request) {
+	// 只支持GET方法
 	if !allowMethod(w, r.Method, "GET") {
 		return
 	}
@@ -104,6 +115,9 @@ func (p *reverseProxy) configHandler(w http.ResponseWriter, r *http.Request) {
 // allowMethod verifies that the given method is one of the allowed methods,
 // and if not, it writes an error to w.  A boolean is returned indicating
 // whether or not the method is allowed.
+//
+// 判定给定的方法是否支持。如果不支持，则写入error.
+// 函数最终会返回一个布尔型变量判断是否支持此方法
 func allowMethod(w http.ResponseWriter, m string, ms ...string) bool {
 	for _, meth := range ms {
 		if m == meth {

@@ -39,6 +39,7 @@ var (
 	simpleTokenTTLResolution = 1 * time.Second
 )
 
+// token TTL 维护者
 type simpleTokenTTLKeeper struct {
 	tokens          map[string]time.Time
 	donec           chan struct{}
@@ -47,6 +48,7 @@ type simpleTokenTTLKeeper struct {
 	mu              *sync.Mutex
 }
 
+// 往stopc中塞入空结构体，等待donec ch
 func (tm *simpleTokenTTLKeeper) stop() {
 	select {
 	case tm.stopc <- struct{}{}:
@@ -55,20 +57,24 @@ func (tm *simpleTokenTTLKeeper) stop() {
 	<-tm.donec
 }
 
+// 添加一个token，过期时间为当前时间加上5分钟
 func (tm *simpleTokenTTLKeeper) addSimpleToken(token string) {
 	tm.tokens[token] = time.Now().Add(simpleTokenTTL)
 }
 
+// 重置token的ttl为5分钟
 func (tm *simpleTokenTTLKeeper) resetSimpleToken(token string) {
 	if _, ok := tm.tokens[token]; ok {
 		tm.tokens[token] = time.Now().Add(simpleTokenTTL)
 	}
 }
 
+// 删除token
 func (tm *simpleTokenTTLKeeper) deleteSimpleToken(token string) {
 	delete(tm.tokens, token)
 }
 
+// 每一秒钟，遍历token，删除过期的token
 func (tm *simpleTokenTTLKeeper) run() {
 	tokenTicker := time.NewTicker(simpleTokenTTLResolution)
 	defer func() {
@@ -82,7 +88,7 @@ func (tm *simpleTokenTTLKeeper) run() {
 			tm.mu.Lock()
 			for t, tokenendtime := range tm.tokens {
 				if nowtime.After(tokenendtime) {
-					tm.deleteTokenFunc(t)
+					tm.deleteTokenFunc(t) // 删掉上层的username->token
 					delete(tm.tokens, t)
 				}
 			}
@@ -93,6 +99,7 @@ func (tm *simpleTokenTTLKeeper) run() {
 	}
 }
 
+// token维护者
 type tokenSimple struct {
 	indexWaiter       func(uint64) <-chan struct{}
 	simpleTokenKeeper *simpleTokenTTLKeeper
@@ -100,6 +107,7 @@ type tokenSimple struct {
 	simpleTokens      map[string]string // token -> username
 }
 
+// 生成token的前缀，16位字符
 func (t *tokenSimple) genTokenPrefix() (string, error) {
 	ret := make([]byte, defaultSimpleTokenLength)
 
@@ -115,6 +123,8 @@ func (t *tokenSimple) genTokenPrefix() (string, error) {
 	return string(ret), nil
 }
 
+// 将指定token授权给指定username
+// 如果指定的token已经存在，则panic
 func (t *tokenSimple) assignSimpleTokenToUser(username, token string) {
 	t.simpleTokensMu.Lock()
 	defer t.simpleTokensMu.Unlock()
@@ -131,6 +141,7 @@ func (t *tokenSimple) assignSimpleTokenToUser(username, token string) {
 	t.simpleTokenKeeper.addSimpleToken(token)
 }
 
+// 删掉username对应的token
 func (t *tokenSimple) invalidateUser(username string) {
 	if t.simpleTokenKeeper == nil {
 		return
@@ -145,6 +156,7 @@ func (t *tokenSimple) invalidateUser(username string) {
 	t.simpleTokensMu.Unlock()
 }
 
+// 启动
 func (t *tokenSimple) enable() {
 	delf := func(tk string) {
 		if username, ok := t.simpleTokens[tk]; ok {
@@ -162,6 +174,7 @@ func (t *tokenSimple) enable() {
 	go t.simpleTokenKeeper.run()
 }
 
+// 清空
 func (t *tokenSimple) disable() {
 	t.simpleTokensMu.Lock()
 	tk := t.simpleTokenKeeper
@@ -173,6 +186,7 @@ func (t *tokenSimple) disable() {
 	}
 }
 
+// 验证token，且会重置token
 func (t *tokenSimple) info(ctx context.Context, token string, revision uint64) (*AuthInfo, bool) {
 	if !t.isValidSimpleToken(ctx, token) {
 		return nil, false
@@ -186,6 +200,7 @@ func (t *tokenSimple) info(ctx context.Context, token string, revision uint64) (
 	return &AuthInfo{Username: username, Revision: revision}, ok
 }
 
+// 赋予user token
 func (t *tokenSimple) assign(ctx context.Context, username string, rev uint64) (string, error) {
 	// rev isn't used in simple token, it is only used in JWT
 	index := ctx.Value(AuthenticateParamIndex{}).(uint64)
@@ -196,6 +211,7 @@ func (t *tokenSimple) assign(ctx context.Context, username string, rev uint64) (
 	return token, nil
 }
 
+// 判定token是否合法
 func (t *tokenSimple) isValidSimpleToken(ctx context.Context, token string) bool {
 	splitted := strings.Split(token, ".")
 	if len(splitted) != 2 {

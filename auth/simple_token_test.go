@@ -16,7 +16,9 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 )
 
 // TestSimpleTokenDisabled ensures that TokenProviderSimple behaves correctly when
@@ -31,10 +33,12 @@ func TestSimpleTokenDisabled(t *testing.T) {
 	for _, tp := range []*tokenSimple{initialState, explicitlyDisabled} {
 		ctx := context.WithValue(context.WithValue(context.TODO(), AuthenticateParamIndex{}, uint64(1)), AuthenticateParamSimpleTokenPrefix{}, "dummy")
 		token, err := tp.assign(ctx, "user1", 0)
+		fmt.Println("--", token)
 		if err != nil {
 			t.Fatal(err)
 		}
 		authInfo, ok := tp.info(ctx, token, 0)
+		fmt.Printf("--%+v\n", authInfo)
 		if ok {
 			t.Errorf("expected (true, \"user1\") got (%t, %s)", ok, authInfo.Username)
 		}
@@ -64,4 +68,16 @@ func TestSimpleTokenAssign(t *testing.T) {
 	if ok {
 		t.Errorf("expected ok == false after user is invalidated")
 	}
+}
+
+// fo test
+func TestDelToken(t *testing.T) {
+	simpleTokenTTL = 5 * time.Second
+	tp := newTokenProviderSimple(dummyIndexWaiter)
+	tp.enable()
+
+	tp.assignSimpleTokenToUser("qcrao", "stefnopass")
+
+	test := make(chan int)
+	test <- 1
 }

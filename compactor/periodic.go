@@ -16,6 +16,7 @@ package compactor
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -27,6 +28,8 @@ import (
 
 // Periodic compacts the log by purging revisions older than
 // the configured retention time.
+//
+// Periodic通过清理超过保留时间的日志
 type Periodic struct {
 	clock  clockwork.Clock
 	period time.Duration
@@ -105,7 +108,10 @@ func (t *Periodic) Run() {
 		lastSuccess := t.clock.Now()
 		baseInterval := t.period
 		for {
-			t.revs = append(t.revs, t.rg.Rev())
+			// 记录版本
+			nowRev := t.rg.Rev()
+			fmt.Printf("nowRev: %+v\n", nowRev)
+			t.revs = append(t.revs, nowRev)
 			if len(t.revs) > retentions {
 				t.revs = t.revs[1:] // t.revs[0] is always the rev at t.period ago
 			}
@@ -122,11 +128,13 @@ func (t *Periodic) Run() {
 				}
 			}
 
+			// 等够第一个t.period
 			if t.clock.Now().Sub(lastSuccess) < baseInterval {
 				continue
 			}
 
 			// wait up to initial given period
+			// 等够第一个t.period后，执行到此处，之后，等待时间就是基本的compactInterval
 			if baseInterval == t.period {
 				baseInterval = compactInterval
 			}
@@ -149,6 +157,9 @@ func (t *Periodic) Run() {
 // (e.g. --auto-compaction-mode 'periodic' --auto-compaction-retention='10m', then compact every 10-minute)
 // if given compaction period x is >1-hour, compact every hour.
 // (e.g. --auto-compaction-mode 'periodic' --auto-compaction-retention='2h', then compact every 1-hour)
+//
+// 如果间隔大于1小时，则返回1小时
+// 否则按实时间隔时间返回
 func (t *Periodic) getCompactInterval() time.Duration {
 	itv := t.period
 	if itv > time.Hour {
@@ -157,12 +168,14 @@ func (t *Periodic) getCompactInterval() time.Duration {
 	return itv
 }
 
+// 维护的版本数
 func (t *Periodic) getRetentions() int {
 	return int(t.period/t.getRetryInterval()) + 1
 }
 
 const retryDivisor = 10
 
+// 重试时间，10分之一的打包间隔时长
 func (t *Periodic) getRetryInterval() time.Duration {
 	itv := t.period
 	if itv > time.Hour {

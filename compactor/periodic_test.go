@@ -15,6 +15,7 @@
 package compactor
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/jonboulle/clockwork"
 )
 
+// 开始2小时，不压缩
 func TestPeriodicHourly(t *testing.T) {
 	retentionHours := 2
 	retentionDuration := time.Duration(retentionHours) * time.Hour
@@ -37,7 +39,10 @@ func TestPeriodicHourly(t *testing.T) {
 	tb.Run()
 	defer tb.Stop()
 
+	// 21, 10
 	initialIntervals, intervalsPerPeriod := tb.getRetentions(), 10
+	fmt.Printf("initialIntervals: %+v\n", initialIntervals)
+	fmt.Printf("RetryInterval: %+v\n", tb.getRetryInterval())
 
 	// compaction doesn't happen til 2 hours elapse
 	for i := 0; i < initialIntervals; i++ {
@@ -70,6 +75,7 @@ func TestPeriodicHourly(t *testing.T) {
 		}
 
 		expectedRevision = int64((i + 1) * 10)
+		fmt.Println("expectedRevision: ", expectedRevision)
 		if !reflect.DeepEqual(a[0].Params[0], &pb.CompactionRequest{Revision: expectedRevision}) {
 			t.Errorf("compact request = %v, want %v", a[0].Params[0], &pb.CompactionRequest{Revision: expectedRevision})
 		}
@@ -137,6 +143,7 @@ func TestPeriodicPause(t *testing.T) {
 	tb.Pause()
 
 	n := tb.getRetentions()
+	fmt.Println("n: ", n)
 
 	// tb will collect 3 hours of revisions but not compact since paused
 	for i := 0; i < n*3; i++ {
@@ -144,6 +151,7 @@ func TestPeriodicPause(t *testing.T) {
 		fc.Advance(tb.getRetryInterval())
 	}
 	// t.revs = [21 22 23 24 25 26 27 28 29 30]
+	fmt.Println("=====")
 
 	select {
 	case a := <-compactable.Chan():
@@ -169,4 +177,5 @@ func TestPeriodicPause(t *testing.T) {
 	if !reflect.DeepEqual(a[0].Params[0], wreq) {
 		t.Errorf("compact request = %v, want %v", a[0].Params[0], wreq.Revision)
 	}
+	fmt.Println(wreq.Revision)
 }

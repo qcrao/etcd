@@ -58,6 +58,7 @@ func TestNewAuthStoreRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := as.Revision()
+	fmt.Printf("old rev: %+v\n", old)
 	b.Close()
 	as.Close()
 
@@ -65,6 +66,7 @@ func TestNewAuthStoreRevision(t *testing.T) {
 	b2 := backend.NewDefaultBackend(tPath)
 	as = NewAuthStore(b2, tp)
 	new := as.Revision()
+	fmt.Printf("new rev: %+v\n", new)
 	b2.Close()
 	as.Close()
 
@@ -131,6 +133,7 @@ func TestUserAdd(t *testing.T) {
 
 	ua := &pb.AuthUserAddRequest{Name: "foo"}
 	_, err := as.UserAdd(ua) // add an existing user
+	fmt.Printf("%+v\n", err)
 	if err == nil {
 		t.Fatalf("expected %v, got %v", ErrUserAlreadyExist, err)
 	}
@@ -140,9 +143,15 @@ func TestUserAdd(t *testing.T) {
 
 	ua = &pb.AuthUserAddRequest{Name: ""}
 	_, err = as.UserAdd(ua) // add a user with empty name
+	fmt.Printf("%+v\n", err)
 	if err != ErrUserEmpty {
 		t.Fatal(err)
 	}
+
+	ua.Name = "qcrao"
+	_, err = as.UserAdd(ua) // add a user with empty name
+	fmt.Printf("%+v\n", err)
+	fmt.Printf("%+v\n", as.Revision())
 }
 
 func TestCheckPassword(t *testing.T) {
@@ -151,6 +160,7 @@ func TestCheckPassword(t *testing.T) {
 
 	// auth a non-existing user
 	_, err := as.CheckPassword("foo-test", "bar")
+	fmt.Printf("%+v\n", err)
 	if err == nil {
 		t.Fatalf("expected %v, got %v", ErrAuthFailed, err)
 	}
@@ -166,6 +176,7 @@ func TestCheckPassword(t *testing.T) {
 
 	// auth an existing user but with wrong password
 	_, err = as.CheckPassword("foo", "")
+	fmt.Printf("%+v\n", err)
 	if err == nil {
 		t.Fatalf("expected %v, got %v", ErrAuthFailed, err)
 	}
@@ -200,7 +211,8 @@ func TestUserChangePassword(t *testing.T) {
 	defer tearDown(t)
 
 	ctx1 := context.WithValue(context.WithValue(context.TODO(), AuthenticateParamIndex{}, uint64(1)), AuthenticateParamSimpleTokenPrefix{}, "dummy")
-	_, err := as.Authenticate(ctx1, "foo", "bar")
+	tk1, err := as.Authenticate(ctx1, "foo", "bar")
+	fmt.Printf("tk1: %s\n", tk1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +223,8 @@ func TestUserChangePassword(t *testing.T) {
 	}
 
 	ctx2 := context.WithValue(context.WithValue(context.TODO(), AuthenticateParamIndex{}, uint64(2)), AuthenticateParamSimpleTokenPrefix{}, "dummy")
-	_, err = as.Authenticate(ctx2, "foo", "baz")
+	tk2, err := as.Authenticate(ctx2, "foo", "baz")
+	fmt.Printf("tk1: %s\n", tk2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,6 +290,7 @@ func TestGetUser(t *testing.T) {
 	if !reflect.DeepEqual(expected, u.Roles) {
 		t.Errorf("expected %v, got %v", expected, u.Roles)
 	}
+	fmt.Printf("==%+v\n", u)
 }
 
 func TestListUsers(t *testing.T) {
@@ -299,6 +313,7 @@ func TestListUsers(t *testing.T) {
 	if !contains(ul.Users, "user1") {
 		t.Errorf("expected %v in %v", "user1", ul.Users)
 	}
+	fmt.Printf("===%+v\n", ul)
 }
 
 func TestRoleGrantPermission(t *testing.T) {
@@ -332,6 +347,7 @@ func TestRoleGrantPermission(t *testing.T) {
 	if !reflect.DeepEqual(perm, r.Perm[0]) {
 		t.Errorf("expected %v, got %v", perm, r.Perm[0])
 	}
+	fmt.Printf("===%+v\n", r.Perm[0])
 }
 
 func TestRoleRevokePermission(t *testing.T) {
@@ -450,6 +466,8 @@ func TestAuthInfoFromCtx(t *testing.T) {
 
 	ctx := context.Background()
 	ai, err := as.AuthInfoFromCtx(ctx)
+	fmt.Printf("===%+v\n", ai)
+	fmt.Printf("===%+v\n", err)
 	if err != nil && ai != nil {
 		t.Errorf("expected (nil, nil), got (%v, %v)", ai, err)
 	}
@@ -524,7 +542,8 @@ func TestAuthInfoFromCtxRace(t *testing.T) {
 	go func() {
 		defer close(donec)
 		ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{"token": "test"}))
-		as.AuthInfoFromCtx(ctx)
+		ai, err := as.AuthInfoFromCtx(ctx)
+		fmt.Printf("%+v, %+v\n", ai, err)
 	}()
 	as.UserAdd(&pb.AuthUserAddRequest{Name: "test"})
 	<-donec
@@ -596,6 +615,7 @@ func TestRecoverFromSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fmt.Printf("%+v\n", ul)
 	if !contains(ul.Users, "root") {
 		t.Errorf("expected %v in %v", "root", ul.Users)
 	}
@@ -643,11 +663,15 @@ func TestHammerSimpleAuthenticate(t *testing.T) {
 				defer wg.Done()
 				token := fmt.Sprintf("%s(%d)", user, i)
 				ctx := context.WithValue(context.WithValue(context.TODO(), AuthenticateParamIndex{}, uint64(1)), AuthenticateParamSimpleTokenPrefix{}, token)
-				if _, err := as.Authenticate(ctx, user, "123"); err != nil {
+				if tk, err := as.Authenticate(ctx, user, "123"); err != nil {
 					t.Fatal(err)
+				} else {
+					fmt.Printf("==tk: %+v\n", tk)
 				}
-				if _, err := as.AuthInfoFromCtx(ctx); err != nil {
+				if ui, err := as.AuthInfoFromCtx(ctx); err != nil {
 					t.Fatal(err)
+				} else {
+					fmt.Printf("==ui: %+v\n", ui)
 				}
 			}(u)
 		}

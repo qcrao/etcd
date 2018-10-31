@@ -47,6 +47,7 @@ type leaseHandler struct {
 }
 
 func (h *leaseHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 仅支持POST方法
 	if r.Method != "POST" {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return

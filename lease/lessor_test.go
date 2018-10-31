@@ -46,6 +46,8 @@ func TestLessorGrant(t *testing.T) {
 	le.Promote(0)
 
 	l, err := le.Grant(1, 1)
+	fmt.Printf("--%+v\n", l)
+	fmt.Printf("--%v\n", l)
 	if err != nil {
 		t.Fatalf("could not grant lease 1 (%v)", err)
 	}
@@ -133,7 +135,7 @@ func TestLeaseConcurrentKeys(t *testing.T) {
 	for i := 0; i < itemn; i++ {
 		go func() {
 			defer wg.Done()
-			l.Keys()
+			fmt.Printf("%+v", l.Keys())
 		}()
 	}
 
@@ -164,6 +166,7 @@ func TestLessorRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not grant lease for 100s ttl (%v)", err)
 	}
+	fmt.Printf("==%+v\n", l)
 
 	items := []LeaseItem{
 		{"foo"},
@@ -173,6 +176,7 @@ func TestLessorRevoke(t *testing.T) {
 	if err = le.Attach(l.ID, items); err != nil {
 		t.Fatalf("failed to attach items to the lease: %v", err)
 	}
+	fmt.Printf("==%+v\n", l)
 
 	if err = le.Revoke(l.ID); err != nil {
 		t.Fatal("failed to revoke lease:", err)
@@ -184,6 +188,7 @@ func TestLessorRevoke(t *testing.T) {
 
 	wdeleted := []string{"bar_", "foo_"}
 	sort.Strings(fd.deleted)
+	fmt.Printf("==%+v\n", fd.deleted)
 	if !reflect.DeepEqual(fd.deleted, wdeleted) {
 		t.Errorf("deleted= %v, want %v", fd.deleted, wdeleted)
 	}
@@ -331,6 +336,7 @@ func TestLessorRecover(t *testing.T) {
 	defer le.Stop()
 	l1, err1 := le.Grant(1, 10)
 	l2, err2 := le.Grant(2, 20)
+	fmt.Printf("l2: %+v\n", l2)
 	if err1 != nil || err2 != nil {
 		t.Fatalf("could not grant initial leases (%v, %v)", err1, err2)
 	}
@@ -344,6 +350,7 @@ func TestLessorRecover(t *testing.T) {
 	}
 
 	nl2 := nle.Lookup(l2.ID)
+	fmt.Printf("nl2: %+v\n", nl2)
 	if nl2 == nil || nl2.ttl != l2.ttl {
 		t.Errorf("nl2 = %v, want nl2.ttl= %d", nl2.ttl, l2.ttl)
 	}

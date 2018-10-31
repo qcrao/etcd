@@ -59,6 +59,8 @@ var (
 
 // JoinCluster will connect to the discovery service at the given url, and
 // register the server represented by the given id and config to the cluster
+//
+// JoinCluster通过给定的url连接到服务。并且用给定的id和配置注册server
 func JoinCluster(durl, dproxyurl string, id types.ID, config string) (string, error) {
 	d, err := newDiscovery(durl, dproxyurl, id)
 	if err != nil {

@@ -34,6 +34,7 @@ const (
 )
 
 // Compactor purges old log from the storage periodically.
+// Compactor 定期清理日志
 type Compactor interface {
 	// Run starts the main loop of the compactor in background.
 	// Use Stop() to halt the loop and release the resource.

@@ -15,6 +15,7 @@
 package httpproxy
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -91,6 +92,8 @@ func TestConfigHandlerGET(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fmt.Println(string(body))
+	fmt.Println(body)
 
 	if string(body) != wbody {
 		t.Errorf("body = %s, want %s", string(body), wbody)

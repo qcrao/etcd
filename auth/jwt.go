@@ -22,6 +22,8 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
+// http://www.ruanyifeng.com/blog/2018/07/json_web_token-tutorial.html
+// JWT 跨域认证解决方案
 type tokenJWT struct {
 	signMethod string
 	signKey    *rsa.PrivateKey
@@ -63,6 +65,7 @@ func (t *tokenJWT) info(ctx context.Context, token string, rev uint64) (*AuthInf
 	return &AuthInfo{Username: username, Revision: revision}, true
 }
 
+// 使用私钥进行签名
 func (t *tokenJWT) assign(ctx context.Context, username string, revision uint64) (string, error) {
 	// Future work: let a jwt token include permission information would be useful for
 	// permission checking in proxy side.

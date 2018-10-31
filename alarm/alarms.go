@@ -49,6 +49,7 @@ func NewAlarmStore(bg BackendGetter) (*AlarmStore, error) {
 	return ret, err
 }
 
+// 使给定类型，给定id的Alarm生效
 func (a *AlarmStore) Activate(id types.ID, at pb.AlarmType) *pb.AlarmMember {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -71,6 +72,8 @@ func (a *AlarmStore) Activate(id types.ID, at pb.AlarmType) *pb.AlarmMember {
 	return newAlarm
 }
 
+// 删除给定类型，给定id的Alarm
+// 并从底层删除
 func (a *AlarmStore) Deactivate(id types.ID, at pb.AlarmType) *pb.AlarmMember {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -100,6 +103,7 @@ func (a *AlarmStore) Deactivate(id types.ID, at pb.AlarmType) *pb.AlarmMember {
 	return m
 }
 
+// 根据类型获取所有的Alarm，如果传入的type为0，则返回所有的Alarm
 func (a *AlarmStore) Get(at pb.AlarmType) (ret []*pb.AlarmMember) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -117,6 +121,7 @@ func (a *AlarmStore) Get(at pb.AlarmType) (ret []*pb.AlarmMember) {
 	return ret
 }
 
+// 将底层存储的所有k-v写AlarmStore的入map
 func (a *AlarmStore) restore() error {
 	b := a.bg.Backend()
 	tx := b.BatchTx()

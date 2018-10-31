@@ -92,91 +92,120 @@ type AuthenticateParamSimpleTokenPrefix struct{}
 
 type AuthStore interface {
 	// AuthEnable turns on the authentication feature
+	// 打开鉴权开关
 	AuthEnable() error
 
 	// AuthDisable turns off the authentication feature
+	// 关闭鉴权开关
 	AuthDisable()
 
 	// Authenticate does authentication based on given user name and password
+	// 对给下用户名和密码作鉴权
 	Authenticate(ctx context.Context, username, password string) (*pb.AuthenticateResponse, error)
 
 	// Recover recovers the state of auth store from the given backend
+	// 从底层存储恢复权限信息
 	Recover(b backend.Backend)
 
 	// UserAdd adds a new user
+	// 添加一个新用户
 	UserAdd(r *pb.AuthUserAddRequest) (*pb.AuthUserAddResponse, error)
 
 	// UserDelete deletes a user
+	// 删除一个用户
 	UserDelete(r *pb.AuthUserDeleteRequest) (*pb.AuthUserDeleteResponse, error)
 
 	// UserChangePassword changes a password of a user
+	// 修改用户密码
 	UserChangePassword(r *pb.AuthUserChangePasswordRequest) (*pb.AuthUserChangePasswordResponse, error)
 
 	// UserGrantRole grants a role to the user
+	// 将role授予用户
 	UserGrantRole(r *pb.AuthUserGrantRoleRequest) (*pb.AuthUserGrantRoleResponse, error)
 
 	// UserGet gets the detailed information of a users
+	// 获取用户详细信息
 	UserGet(r *pb.AuthUserGetRequest) (*pb.AuthUserGetResponse, error)
 
 	// UserRevokeRole revokes a role of a user
+	// 撤销某用户的权限信息
 	UserRevokeRole(r *pb.AuthUserRevokeRoleRequest) (*pb.AuthUserRevokeRoleResponse, error)
 
 	// RoleAdd adds a new role
+	// 添加一个新的权限
 	RoleAdd(r *pb.AuthRoleAddRequest) (*pb.AuthRoleAddResponse, error)
 
 	// RoleGrantPermission grants a permission to a role
+	// 向角色添加一个权限
 	RoleGrantPermission(r *pb.AuthRoleGrantPermissionRequest) (*pb.AuthRoleGrantPermissionResponse, error)
 
 	// RoleGet gets the detailed information of a role
+	// 获取一个角色的所有权限信息
 	RoleGet(r *pb.AuthRoleGetRequest) (*pb.AuthRoleGetResponse, error)
 
 	// RoleRevokePermission gets the detailed information of a role
+	// 撤销一个角色的权限
 	RoleRevokePermission(r *pb.AuthRoleRevokePermissionRequest) (*pb.AuthRoleRevokePermissionResponse, error)
 
 	// RoleDelete gets the detailed information of a role
+	// RoleDelete删除一个用户的所有权限
 	RoleDelete(r *pb.AuthRoleDeleteRequest) (*pb.AuthRoleDeleteResponse, error)
 
 	// UserList gets a list of all users
+	// 列出所有用户
 	UserList(r *pb.AuthUserListRequest) (*pb.AuthUserListResponse, error)
 
 	// RoleList gets a list of all roles
+	// 获取所有权限
 	RoleList(r *pb.AuthRoleListRequest) (*pb.AuthRoleListResponse, error)
 
 	// IsPutPermitted checks put permission of the user
+	// 获取是否有写权限
 	IsPutPermitted(authInfo *AuthInfo, key []byte) error
 
 	// IsRangePermitted checks range permission of the user
+	// 检查用户对key的读权限
 	IsRangePermitted(authInfo *AuthInfo, key, rangeEnd []byte) error
 
 	// IsDeleteRangePermitted checks delete-range permission of the user
+	// 检查用户是否有删除权限
 	IsDeleteRangePermitted(authInfo *AuthInfo, key, rangeEnd []byte) error
 
 	// IsAdminPermitted checks admin permission of the user
+	// 检查用户是否有管理员权限
 	IsAdminPermitted(authInfo *AuthInfo) error
 
 	// GenTokenPrefix produces a random string in a case of simple token
 	// in a case of JWT, it produces an empty string
+	// 生成token前缀
 	GenTokenPrefix() (string, error)
 
 	// Revision gets current revision of authStore
+	// 获取当前权限的版本
 	Revision() uint64
 
 	// CheckPassword checks a given pair of username and password is correct
+	// 检验密码
 	CheckPassword(username, password string) (uint64, error)
 
 	// Close does cleanup of AuthStore
+	// 清除权限所有内容
 	Close() error
 
 	// AuthInfoFromCtx gets AuthInfo from gRPC's context
+	// 获取用户信息
 	AuthInfoFromCtx(ctx context.Context) (*AuthInfo, error)
 
 	// AuthInfoFromTLS gets AuthInfo from TLS info of gRPC's context
+	// 获取用户信息
 	AuthInfoFromTLS(ctx context.Context) *AuthInfo
 
 	// WithRoot generates and installs a token that can be used as a root credential
+	// 生成一个给根用户使用的token
 	WithRoot(ctx context.Context) context.Context
 
 	// HasRole checks that user has role
+	// 检查用户是否有某个角色
 	HasRole(user, role string) bool
 }
 
@@ -203,6 +232,7 @@ type authStore struct {
 	tokenProvider TokenProvider
 }
 
+// 开启用户权限校验模式
 func (as *authStore) AuthEnable() error {
 	as.enabledMu.Lock()
 	defer as.enabledMu.Unlock()
@@ -241,6 +271,7 @@ func (as *authStore) AuthEnable() error {
 	return nil
 }
 
+// 关闭权限校验
 func (as *authStore) AuthDisable() {
 	as.enabledMu.Lock()
 	defer as.enabledMu.Unlock()
@@ -261,6 +292,7 @@ func (as *authStore) AuthDisable() {
 	plog.Noticef("Authentication disabled")
 }
 
+// 清空权限信息
 func (as *authStore) Close() error {
 	as.enabledMu.Lock()
 	defer as.enabledMu.Unlock()
@@ -271,6 +303,7 @@ func (as *authStore) Close() error {
 	return nil
 }
 
+// 检验权限，获取token
 func (as *authStore) Authenticate(ctx context.Context, username, password string) (*pb.AuthenticateResponse, error) {
 	if !as.isAuthEnabled() {
 		return nil, ErrAuthNotEnabled
@@ -297,6 +330,7 @@ func (as *authStore) Authenticate(ctx context.Context, username, password string
 	return &pb.AuthenticateResponse{Token: token}, nil
 }
 
+// 验证密码，并返回权限库版本
 func (as *authStore) CheckPassword(username, password string) (uint64, error) {
 	if !as.isAuthEnabled() {
 		return 0, ErrAuthNotEnabled
@@ -319,6 +353,7 @@ func (as *authStore) CheckPassword(username, password string) (uint64, error) {
 	return getRevision(tx), nil
 }
 
+// 从底层存储恢复权限库信息
 func (as *authStore) Recover(be backend.Backend) {
 	enabled := false
 	as.be = be
@@ -340,11 +375,13 @@ func (as *authStore) Recover(be backend.Backend) {
 	as.enabledMu.Unlock()
 }
 
+// 添加用户
 func (as *authStore) UserAdd(r *pb.AuthUserAddRequest) (*pb.AuthUserAddResponse, error) {
 	if len(r.Name) == 0 {
 		return nil, ErrUserEmpty
 	}
 
+	// 将密码进行hash
 	hashed, err := bcrypt.GenerateFromPassword([]byte(r.Password), BcryptCost)
 	if err != nil {
 		plog.Errorf("failed to hash password: %s", err)
@@ -365,8 +402,10 @@ func (as *authStore) UserAdd(r *pb.AuthUserAddRequest) (*pb.AuthUserAddResponse,
 		Password: hashed,
 	}
 
+	// 将user添加到后端存储
 	putUser(tx, newUser)
 
+	// 将版本添加到底层存储
 	as.commitRevision(tx)
 
 	plog.Noticef("added a new user: %s", r.Name)
@@ -374,7 +413,9 @@ func (as *authStore) UserAdd(r *pb.AuthUserAddRequest) (*pb.AuthUserAddResponse,
 	return &pb.AuthUserAddResponse{}, nil
 }
 
+// 删除用户
 func (as *authStore) UserDelete(r *pb.AuthUserDeleteRequest) (*pb.AuthUserDeleteResponse, error) {
+	// 不能删除根用户
 	if as.enabled && strings.Compare(r.Name, rootUser) == 0 {
 		plog.Errorf("the user root must not be deleted")
 		return nil, ErrInvalidAuthMgmt
@@ -389,11 +430,14 @@ func (as *authStore) UserDelete(r *pb.AuthUserDeleteRequest) (*pb.AuthUserDelete
 		return nil, ErrUserNotFound
 	}
 
+	// 先从底层存储删除用户
 	delUser(tx, r.Name)
 
 	as.commitRevision(tx)
 
+	// 删掉用户
 	as.invalidateCachedPerm(r.Name)
+	// 删掉用户的token
 	as.tokenProvider.invalidateUser(r.Name)
 
 	plog.Noticef("deleted a user: %s", r.Name)
@@ -401,6 +445,7 @@ func (as *authStore) UserDelete(r *pb.AuthUserDeleteRequest) (*pb.AuthUserDelete
 	return &pb.AuthUserDeleteResponse{}, nil
 }
 
+// 更改用户密码
 func (as *authStore) UserChangePassword(r *pb.AuthUserChangePasswordRequest) (*pb.AuthUserChangePasswordResponse, error) {
 	// TODO(mitake): measure the cost of bcrypt.GenerateFromPassword()
 	// If the cost is too high, we should move the encryption to outside of the raft
@@ -414,17 +459,20 @@ func (as *authStore) UserChangePassword(r *pb.AuthUserChangePasswordRequest) (*p
 	tx.Lock()
 	defer tx.Unlock()
 
+	// 先获取用户信息
 	user := getUser(tx, r.Name)
 	if user == nil {
 		return nil, ErrUserNotFound
 	}
 
+	// 构造新用户对象，更新passwd, 其他不变
 	updatedUser := &authpb.User{
 		Name:     []byte(r.Name),
 		Roles:    user.Roles,
 		Password: hashed,
 	}
 
+	// 写入底层存储
 	putUser(tx, updatedUser)
 
 	as.commitRevision(tx)
@@ -437,16 +485,19 @@ func (as *authStore) UserChangePassword(r *pb.AuthUserChangePasswordRequest) (*p
 	return &pb.AuthUserChangePasswordResponse{}, nil
 }
 
+// 将角色赋予用户
 func (as *authStore) UserGrantRole(r *pb.AuthUserGrantRoleRequest) (*pb.AuthUserGrantRoleResponse, error) {
 	tx := as.be.BatchTx()
 	tx.Lock()
 	defer tx.Unlock()
 
+	// 获取用户信息
 	user := getUser(tx, r.User)
 	if user == nil {
 		return nil, ErrUserNotFound
 	}
 
+	// 如果
 	if r.Role != rootRole {
 		role := getRole(tx, r.Role)
 		if role == nil {
@@ -454,6 +505,7 @@ func (as *authStore) UserGrantRole(r *pb.AuthUserGrantRoleRequest) (*pb.AuthUser
 		}
 	}
 
+	// 搜索角色是否已存在
 	idx := sort.SearchStrings(user.Roles, r.Role)
 	if idx < len(user.Roles) && strings.Compare(user.Roles[idx], r.Role) == 0 {
 		plog.Warningf("user %s is already granted role %s", r.User, r.Role)
@@ -463,8 +515,10 @@ func (as *authStore) UserGrantRole(r *pb.AuthUserGrantRoleRequest) (*pb.AuthUser
 	user.Roles = append(user.Roles, r.Role)
 	sort.Strings(user.Roles)
 
+	// 将新的用户信息写入存储
 	putUser(tx, user)
 
+	// 将内存中的用户读写权限信息删掉
 	as.invalidateCachedPerm(r.User)
 
 	as.commitRevision(tx)
@@ -473,6 +527,7 @@ func (as *authStore) UserGrantRole(r *pb.AuthUserGrantRoleRequest) (*pb.AuthUser
 	return &pb.AuthUserGrantRoleResponse{}, nil
 }
 
+// 获取用户信息
 func (as *authStore) UserGet(r *pb.AuthUserGetRequest) (*pb.AuthUserGetResponse, error) {
 	tx := as.be.BatchTx()
 	tx.Lock()
@@ -488,6 +543,7 @@ func (as *authStore) UserGet(r *pb.AuthUserGetRequest) (*pb.AuthUserGetResponse,
 	return &resp, nil
 }
 
+// 获取所有用户
 func (as *authStore) UserList(r *pb.AuthUserListRequest) (*pb.AuthUserListResponse, error) {
 	tx := as.be.BatchTx()
 	tx.Lock()
@@ -806,6 +862,7 @@ func (as *authStore) IsAdminPermitted(authInfo *AuthInfo) error {
 	return nil
 }
 
+// 根据用户名获取用户信息
 func getUser(tx backend.BatchTx, username string) *authpb.User {
 	_, vs := tx.UnsafeRange(authUsersBucketName, []byte(username), nil, 0)
 	if len(vs) == 0 {
@@ -820,6 +877,7 @@ func getUser(tx backend.BatchTx, username string) *authpb.User {
 	return user
 }
 
+// 获取所有用户。最大支持255
 func getAllUsers(tx backend.BatchTx) []*authpb.User {
 	_, vs := tx.UnsafeRange(authUsersBucketName, []byte{0}, []byte{0xff}, -1)
 	if len(vs) == 0 {
@@ -838,6 +896,7 @@ func getAllUsers(tx backend.BatchTx) []*authpb.User {
 	return users
 }
 
+// 将user写入存储
 func putUser(tx backend.BatchTx, user *authpb.User) {
 	b, err := user.Marshal()
 	if err != nil {
@@ -846,10 +905,12 @@ func putUser(tx backend.BatchTx, user *authpb.User) {
 	tx.UnsafePut(authUsersBucketName, user.Name, b)
 }
 
+// 删除用户
 func delUser(tx backend.BatchTx, username string) {
 	tx.UnsafeDelete(authUsersBucketName, []byte(username))
 }
 
+// 获取角色信息
 func getRole(tx backend.BatchTx, rolename string) *authpb.Role {
 	_, vs := tx.UnsafeRange(authRolesBucketName, []byte(rolename), nil, 0)
 	if len(vs) == 0 {
@@ -901,6 +962,7 @@ func (as *authStore) isAuthEnabled() bool {
 	return as.enabled
 }
 
+// 新建用户权限库
 func NewAuthStore(be backend.Backend, tp TokenProvider) *authStore {
 	tx := be.BatchTx()
 	tx.Lock()
@@ -939,12 +1001,14 @@ func NewAuthStore(be backend.Backend, tp TokenProvider) *authStore {
 	return as
 }
 
+// 检查用户是否有root权限
 func hasRootRole(u *authpb.User) bool {
 	// u.Roles is sorted in UserGrantRole(), so we can use binary search.
 	idx := sort.SearchStrings(u.Roles, rootRole)
 	return idx != len(u.Roles) && u.Roles[idx] == rootRole
 }
 
+// 将版本信息加1添加到底层存储
 func (as *authStore) commitRevision(tx backend.BatchTx) {
 	atomic.AddUint64(&as.revision, 1)
 	revBytes := make([]byte, revBytesLen)
@@ -952,6 +1016,7 @@ func (as *authStore) commitRevision(tx backend.BatchTx) {
 	tx.UnsafePut(authBucketName, revisionKey, revBytes)
 }
 
+// 获取版本
 func getRevision(tx backend.BatchTx) uint64 {
 	_, vs := tx.UnsafeRange(authBucketName, []byte(revisionKey), nil, 0)
 	if len(vs) != 1 {
@@ -1021,6 +1086,7 @@ func (as *authStore) GenTokenPrefix() (string, error) {
 	return as.tokenProvider.genTokenPrefix()
 }
 
+// 解析配置信息
 func decomposeOpts(optstr string) (string, map[string]string, error) {
 	opts := strings.Split(optstr, ",")
 	tokenType := opts[0]
@@ -1046,6 +1112,7 @@ func decomposeOpts(optstr string) (string, map[string]string, error) {
 
 }
 
+// 新建token
 func NewTokenProvider(tokenOpts string, indexWaiter func(uint64) <-chan struct{}) (TokenProvider, error) {
 	tokenType, typeSpecificOpts, err := decomposeOpts(tokenOpts)
 	if err != nil {
@@ -1086,6 +1153,7 @@ func (as *authStore) WithRoot(ctx context.Context) context.Context {
 		ctxForAssign = ctx
 	}
 
+	// 使用私钥进行签名
 	token, err := as.tokenProvider.assign(ctxForAssign, "root", as.Revision())
 	if err != nil {
 		// this must not happen
@@ -1102,6 +1170,7 @@ func (as *authStore) WithRoot(ctx context.Context) context.Context {
 	return metadata.NewIncomingContext(ctx, tokenMD)
 }
 
+// user是否有此role
 func (as *authStore) HasRole(user, role string) bool {
 	tx := as.be.BatchTx()
 	tx.Lock()

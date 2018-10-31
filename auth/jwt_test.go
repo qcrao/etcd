@@ -39,14 +39,20 @@ func TestJWTInfo(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(err)
 	}
+	fmt.Printf("===token: %s\n", token)
+
 	ai, ok := jwt.info(context.TODO(), token, 123)
 	if !ok {
 		t.Fatalf("failed to authenticate with token %s", token)
 	}
+
+	fmt.Printf("===author info: %+v\n", ai)
+
 	if ai.Revision != 123 {
 		t.Fatalf("expected revision 123, got %d", ai.Revision)
 	}
 	ai, ok = jwt.info(context.TODO(), "aaa", 120)
+	fmt.Printf("===author info: %+v\n", ai)
 	if ok || ai != nil {
 		t.Fatalf("expected aaa to fail to authenticate, got %+v", ai)
 	}
@@ -62,13 +68,18 @@ func TestJWTBad(t *testing.T) {
 	opts["pub-key"] = jwtPrivKey
 	if _, err := newTokenProviderJWT(opts); err == nil {
 		t.Fatalf("expected failure on missing public key")
+	} else {
+		fmt.Printf("err: %+v\n", err)
 	}
+
 	opts["pub-key"] = jwtPubKey
 
 	// public key instead of private key
 	opts["priv-key"] = jwtPubKey
 	if _, err := newTokenProviderJWT(opts); err == nil {
 		t.Fatalf("expected failure on missing public key")
+	} else {
+		fmt.Printf("err: %+v\n", err)
 	}
 	opts["priv-key"] = jwtPrivKey
 
@@ -76,20 +87,28 @@ func TestJWTBad(t *testing.T) {
 	delete(opts, "sign-method")
 	if _, err := newTokenProviderJWT(opts); err == nil {
 		t.Fatal("expected error on missing option")
+	} else {
+		fmt.Printf("err: %+v\n", err)
 	}
+
 	opts["sign-method"] = "RS256"
 
 	// bad file for pubkey
 	opts["pub-key"] = "whatever"
 	if _, err := newTokenProviderJWT(opts); err == nil {
 		t.Fatalf("expected failure on missing public key")
+	} else {
+		fmt.Printf("err: %+v\n", err)
 	}
+
 	opts["pub-key"] = jwtPubKey
 
 	// bad file for private key
 	opts["priv-key"] = "whatever"
 	if _, err := newTokenProviderJWT(opts); err == nil {
 		t.Fatalf("expeceted failure on missing private key")
+	} else {
+		fmt.Printf("err: %+v\n", err)
 	}
 	opts["priv-key"] = jwtPrivKey
 }

@@ -45,6 +45,7 @@ func newDirector(urlsFunc GetProxyURLs, failureWait time.Duration, refreshInterv
 		for {
 			es := d.endpoints()
 			ri := refreshInterval
+			// 如果没有可用的节点，则将重试间隔改为1s
 			if ri >= defaultRefreshInterval {
 				if len(es) == 0 {
 					ri = time.Second
@@ -73,6 +74,7 @@ type director struct {
 	failureWait time.Duration
 }
 
+// 刷新
 func (d *director) refresh() {
 	urls := d.uf()
 	d.Lock()
@@ -88,6 +90,7 @@ func (d *director) refresh() {
 	}
 
 	// shuffle array to avoid connections being "stuck" to a single endpoint
+	// 打乱endpoints，防止在同一台机器上"卡住"
 	for i := range endpoints {
 		j := rand.Intn(i + 1)
 		endpoints[i], endpoints[j] = endpoints[j], endpoints[i]
@@ -96,6 +99,7 @@ func (d *director) refresh() {
 	d.ep = endpoints
 }
 
+// 返回可用的节点
 func (d *director) endpoints() []*endpoint {
 	d.Lock()
 	defer d.Unlock()
@@ -109,6 +113,7 @@ func (d *director) endpoints() []*endpoint {
 	return filtered
 }
 
+// 新建节点对象
 func newEndpoint(u url.URL, failureWait time.Duration) *endpoint {
 	ep := endpoint{
 		URL:       u,
@@ -119,6 +124,7 @@ func newEndpoint(u url.URL, failureWait time.Duration) *endpoint {
 	return &ep
 }
 
+// 节点
 type endpoint struct {
 	sync.Mutex
 
@@ -128,8 +134,10 @@ type endpoint struct {
 	failFunc func(ep *endpoint)
 }
 
+// 标记一个节点是否失败
 func (ep *endpoint) Failed() {
 	ep.Lock()
+	// 已经标记过失败了，直接返回
 	if !ep.Available {
 		ep.Unlock()
 		return
@@ -145,9 +153,11 @@ func (ep *endpoint) Failed() {
 		return
 	}
 
+	// 执行失败后的函数，这里是直接等待一段时间后重新将节点标记为可用
 	ep.failFunc(ep)
 }
 
+// 等待wait时间后，将节点标记为"可用"
 func timedUnavailabilityFunc(wait time.Duration) func(*endpoint) {
 	return func(ep *endpoint) {
 		time.AfterFunc(wait, func() {

@@ -27,9 +27,11 @@ import (
 )
 
 // NoLease is a special LeaseID representing the absence of a lease.
+// NoLease表示不绑定租约
 const NoLease = LeaseID(0)
 
 // MaxLeaseTTL is the maximum lease TTL value
+// 最大ttl
 const MaxLeaseTTL = 9000000000
 
 var (
@@ -48,17 +50,22 @@ var (
 
 // TxnDelete is a TxnWrite that only permits deletes. Defined here
 // to avoid circular dependency with mvcc.
+//
+// TxnDelete是一个只负责写的事务
 type TxnDelete interface {
 	DeleteRange(key, end []byte) (n, rev int64)
 	End()
 }
 
 // RangeDeleter is a TxnDelete constructor.
+// 创建写事务
 type RangeDeleter func() TxnDelete
 
 type LeaseID int64
 
 // Lessor owns leases. It can grant, revoke, renew and modify leases for lessee.
+//
+// Lessor管理leases.
 type Lessor interface {
 	// SetRangeDeleter lets the lessor create TxnDeletes to the store.
 	// Lessor deletes the items in the revoked or expired lease by creating
@@ -66,22 +73,31 @@ type Lessor interface {
 	SetRangeDeleter(rd RangeDeleter)
 
 	// Grant grants a lease that expires at least after TTL seconds.
+	// Grant授权一个在ttl秒后过期的租约
 	Grant(id LeaseID, ttl int64) (*Lease, error)
 	// Revoke revokes a lease with given ID. The item attached to the
 	// given lease will be removed. If the ID does not exist, an error
 	// will be returned.
+	//
+	// Revoke根据id撤销租约，所有和此租约绑定的key将被移除
 	Revoke(id LeaseID) error
 
 	// Attach attaches given leaseItem to the lease with given LeaseID.
 	// If the lease does not exist, an error will be returned.
+	//
+	// Attach将给定的项目绑定到给定id的租约上
 	Attach(id LeaseID, items []LeaseItem) error
 
 	// GetLease returns LeaseID for given item.
 	// If no lease found, NoLease value will be returned.
+	//
+	// 获取给定key的租约id
 	GetLease(item LeaseItem) LeaseID
 
 	// Detach detaches given leaseItem from the lease with given LeaseID.
 	// If the lease does not exist, an error will be returned.
+	//
+	// 将给定项目从给定id的租约解除
 	Detach(id LeaseID, items []LeaseItem) error
 
 	// Promote promotes the lessor to be the primary lessor. Primary lessor manages
@@ -90,6 +106,8 @@ type Lessor interface {
 	Promote(extend time.Duration)
 
 	// Demote demotes the lessor from being the primary lessor.
+	//
+	// 将此lessor解除主lessor. 将所有key的过期时间设置为无限期。
 	Demote()
 
 	// Renew renews a lease with given ID. It returns the renewed TTL. If the ID does not exist,
@@ -97,19 +115,29 @@ type Lessor interface {
 	Renew(id LeaseID) (int64, error)
 
 	// Lookup gives the lease at a given lease id, if any
+	//
+	// Lookup获取给定id的租约
 	Lookup(id LeaseID) *Lease
 
 	// Leases lists all leases.
+	//
+	// 列出所有的租约
 	Leases() []*Lease
 
 	// ExpiredLeasesC returns a chan that is used to receive expired leases.
+	//
+	// ExpiredLeasesC返回一个用于接收过期租约的chan
 	ExpiredLeasesC() <-chan []*Lease
 
 	// Recover recovers the lessor state from the given backend and RangeDeleter.
+	//
+	// Recover从底层存储和删除事务构造接口中恢复租约管理对象lessor
 	Recover(b backend.Backend, rd RangeDeleter)
 
 	// Stop stops the lessor for managing leases. The behavior of calling Stop multiple
 	// times is undefined.
+	//
+	// Stop停止lessor管理租约。多次调用此方法的行为未被定义。
 	Stop()
 }
 
@@ -138,16 +166,21 @@ type lessor struct {
 
 	// backend to persist leases. We only persist lease ID and expiry for now.
 	// The leased items can be recovered by iterating all the keys in kv.
+	//
+	// 当前仅持久化租约id和过期时间。和租约绑定的key可以通过kv恢复
 	b backend.Backend
 
 	// minLeaseTTL is the minimum lease TTL that can be granted for a lease. Any
 	// requests for shorter TTLs are extended to the minimum TTL.
+	// 最小可维护的过期时间
 	minLeaseTTL int64
 
 	expiredC chan []*Lease
 	// stopC is a channel whose closure indicates that the lessor should be stopped.
+	// 关闭此ch表示lessor应该被关闭
 	stopC chan struct{}
 	// doneC is a channel whose closure indicates that the lessor is stopped.
+	// 关闭此ch表示此lessor已经停止
 	doneC chan struct{}
 }
 
@@ -190,6 +223,7 @@ func (le *lessor) isPrimary() bool {
 	return le.demotec != nil
 }
 
+// 设置区间删除
 func (le *lessor) SetRangeDeleter(rd RangeDeleter) {
 	le.mu.Lock()
 	defer le.mu.Unlock()
@@ -197,6 +231,7 @@ func (le *lessor) SetRangeDeleter(rd RangeDeleter) {
 	le.rd = rd
 }
 
+// 根据租约id设置ttl
 func (le *lessor) Grant(id LeaseID, ttl int64) (*Lease, error) {
 	if id == NoLease {
 		return nil, ErrLeaseNotFound
@@ -238,6 +273,7 @@ func (le *lessor) Grant(id LeaseID, ttl int64) (*Lease, error) {
 	return l, nil
 }
 
+// 删除一个租约，并且删除相应绑定在此租约上的key
 func (le *lessor) Revoke(id LeaseID) error {
 	le.mu.Lock()
 
@@ -258,6 +294,9 @@ func (le *lessor) Revoke(id LeaseID) error {
 
 	// sort keys so deletes are in same order among all members,
 	// otherwise the backened hashes will be different
+	//
+	// 按key的顺序删除
+	// 否则底层存储的hash值就会不同
 	keys := l.Keys()
 	sort.StringSlice(keys).Sort()
 	for _, key := range keys {
@@ -266,10 +305,13 @@ func (le *lessor) Revoke(id LeaseID) error {
 
 	le.mu.Lock()
 	defer le.mu.Unlock()
+	// 从map中删除相应的lessor
 	delete(le.leaseMap, l.ID)
 	// lease deletion needs to be in the same backend transaction with the
 	// kv deletion. Or we might end up with not executing the revoke or not
 	// deleting the keys if etcdserver fails in between.
+	//
+	// 必须在一个事务中删除k-v对
 	le.b.BatchTx().UnsafeDelete(leaseBucketName, int64ToBytes(int64(l.ID)))
 
 	txn.End()
@@ -278,6 +320,8 @@ func (le *lessor) Revoke(id LeaseID) error {
 
 // Renew renews an existing lease. If the given lease does not exist or
 // has expired, an error will be returned.
+//
+// Renew 获取一个租约，如果给定的租约不存在或者过期了，则会返回错误。
 func (le *lessor) Renew(id LeaseID) (int64, error) {
 	le.mu.Lock()
 
@@ -318,12 +362,14 @@ func (le *lessor) Renew(id LeaseID) (int64, error) {
 	return l.ttl, nil
 }
 
+// 根据id查询租约
 func (le *lessor) Lookup(id LeaseID) *Lease {
 	le.mu.Lock()
 	defer le.mu.Unlock()
 	return le.leaseMap[id]
 }
 
+// 将所有租约排序返回
 func (le *lessor) unsafeLeases() []*Lease {
 	leases := make([]*Lease, 0, len(le.leaseMap))
 	for _, l := range le.leaseMap {
@@ -333,6 +379,7 @@ func (le *lessor) unsafeLeases() []*Lease {
 	return leases
 }
 
+// 获取所有的租约
 func (le *lessor) Leases() []*Lease {
 	le.mu.Lock()
 	ls := le.unsafeLeases()
@@ -467,15 +514,18 @@ func (le *lessor) Recover(b backend.Backend, rd RangeDeleter) {
 	le.initAndRecover()
 }
 
+// 获取过期租约的ch
 func (le *lessor) ExpiredLeasesC() <-chan []*Lease {
 	return le.expiredC
 }
 
+// 停止
 func (le *lessor) Stop() {
 	close(le.stopC)
 	<-le.doneC
 }
 
+// 此循环主要是找出过期的租约，发送到相应的ch
 func (le *lessor) runLoop() {
 	defer close(le.doneC)
 
@@ -513,6 +563,8 @@ func (le *lessor) runLoop() {
 
 // findExpiredLeases loops leases in the leaseMap until reaching expired limit
 // and returns the expired leases that needed to be revoked.
+//
+// findExpiredLeases找出最多limit个过期的租约
 func (le *lessor) findExpiredLeases(limit int) []*Lease {
 	leases := make([]*Lease, 0, 16)
 
@@ -532,6 +584,7 @@ func (le *lessor) findExpiredLeases(limit int) []*Lease {
 	return leases
 }
 
+// 后端只会存储id和ttl
 func (le *lessor) initAndRecover() {
 	tx := le.b.BatchTx()
 	tx.Lock()
@@ -565,6 +618,7 @@ func (le *lessor) initAndRecover() {
 	le.b.ForceCommit()
 }
 
+// 单个租约。可以绑定多个key
 type Lease struct {
 	ID  LeaseID
 	ttl int64 // time to live in seconds
@@ -579,10 +633,12 @@ type Lease struct {
 	revokec chan struct{}
 }
 
+// 租约是否过期
 func (l *Lease) expired() bool {
 	return l.Remaining() <= 0
 }
 
+// 持久化到底层存储
 func (l *Lease) persistTo(b backend.Backend) {
 	key := int64ToBytes(int64(l.ID))
 
@@ -598,11 +654,13 @@ func (l *Lease) persistTo(b backend.Backend) {
 }
 
 // TTL returns the TTL of the Lease.
+// 返回租约的ttl
 func (l *Lease) TTL() int64 {
 	return l.ttl
 }
 
 // refresh refreshes the expiry of the lease.
+// 更新租约过期时长
 func (l *Lease) refresh(extend time.Duration) {
 	newExpiry := time.Now().Add(extend + time.Duration(l.ttl)*time.Second)
 	l.expiryMu.Lock()
@@ -611,6 +669,7 @@ func (l *Lease) refresh(extend time.Duration) {
 }
 
 // forever sets the expiry of lease to be forever.
+// 让租约永不过期
 func (l *Lease) forever() {
 	l.expiryMu.Lock()
 	defer l.expiryMu.Unlock()
@@ -618,6 +677,7 @@ func (l *Lease) forever() {
 }
 
 // Keys returns all the keys attached to the lease.
+// 返回此租约绑定的key
 func (l *Lease) Keys() []string {
 	l.mu.RLock()
 	keys := make([]string, 0, len(l.itemSet))
@@ -629,6 +689,7 @@ func (l *Lease) Keys() []string {
 }
 
 // Remaining returns the remaining time of the lease.
+// Remaining返回这个租约的剩余时间
 func (l *Lease) Remaining() time.Duration {
 	l.expiryMu.RLock()
 	defer l.expiryMu.RUnlock()

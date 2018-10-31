@@ -16,6 +16,7 @@ package leasehttp
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -57,8 +58,11 @@ func TestTimeToLiveHTTP(t *testing.T) {
 	defer be.Close()
 
 	le := lease.NewLessor(be, int64(5))
+	fmt.Println(le.GetLease)
 	le.Promote(time.Second)
+	fmt.Println(le.GetLease)
 	l, err := le.Grant(1, int64(5))
+	fmt.Println(l.ID)
 	if err != nil {
 		t.Fatalf("failed to create lease: %v", err)
 	}

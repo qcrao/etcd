@@ -15,6 +15,7 @@
 package compactor
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -104,4 +105,6 @@ func TestRevisionPause(t *testing.T) {
 	if !reflect.DeepEqual(a[0].Params[0], wreq) {
 		t.Errorf("compact request = %v, want %v", a[0].Params[0], wreq.Revision)
 	}
+	fmt.Println("=====")
+	fmt.Println(wreq.Revision)
 }

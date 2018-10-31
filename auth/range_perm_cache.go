@@ -20,6 +20,7 @@ import (
 	"github.com/coreos/etcd/pkg/adt"
 )
 
+// 通过username获取聚合后的用户权限信息
 func getMergedPerms(tx backend.BatchTx, userName string) *unifiedRangePermissions {
 	user := getUser(tx, userName)
 	if user == nil {
@@ -27,10 +28,12 @@ func getMergedPerms(tx backend.BatchTx, userName string) *unifiedRangePermission
 		return nil
 	}
 
+	// 读写线段树
 	readPerms := &adt.IntervalTree{}
 	writePerms := &adt.IntervalTree{}
 
 	for _, roleName := range user.Roles {
+		// 通过角色名获取角色信息
 		role := getRole(tx, roleName)
 		if role == nil {
 			continue
@@ -40,10 +43,12 @@ func getMergedPerms(tx backend.BatchTx, userName string) *unifiedRangePermission
 			var ivl adt.Interval
 			var rangeEnd []byte
 
+			// 如果end有效。
 			if len(perm.RangeEnd) != 1 || perm.RangeEnd[0] != 0 {
 				rangeEnd = perm.RangeEnd
 			}
 
+			// 通过上面的判断可以过滤掉perm.RangeEnd数组长度为1的，且byte[0]==0
 			if len(perm.RangeEnd) != 0 {
 				ivl = adt.NewBytesAffineInterval(perm.Key, rangeEnd)
 			} else {
@@ -70,6 +75,7 @@ func getMergedPerms(tx backend.BatchTx, userName string) *unifiedRangePermission
 	}
 }
 
+// 检查给定范围的key是否有权限
 func checkKeyInterval(cachedPerms *unifiedRangePermissions, key, rangeEnd []byte, permtyp authpb.Permission_Type) bool {
 	if len(rangeEnd) == 1 && rangeEnd[0] == 0 {
 		rangeEnd = nil
@@ -87,6 +93,7 @@ func checkKeyInterval(cachedPerms *unifiedRangePermissions, key, rangeEnd []byte
 	return false
 }
 
+// 检查给定key是否有权限
 func checkKeyPoint(cachedPerms *unifiedRangePermissions, key []byte, permtyp authpb.Permission_Type) bool {
 	pt := adt.NewBytesAffinePoint(key)
 	switch permtyp {
@@ -100,6 +107,8 @@ func checkKeyPoint(cachedPerms *unifiedRangePermissions, key []byte, permtyp aut
 	return false
 }
 
+// 检查给定用户是否有给定范围的key权限
+// 先通过用户名获取到所有权限，然后check权限
 func (as *authStore) isRangeOpPermitted(tx backend.BatchTx, userName string, key, rangeEnd []byte, permtyp authpb.Permission_Type) bool {
 	// assumption: tx is Lock()ed
 	_, ok := as.rangePermCache[userName]
@@ -119,10 +128,12 @@ func (as *authStore) isRangeOpPermitted(tx backend.BatchTx, userName string, key
 	return checkKeyInterval(as.rangePermCache[userName], key, rangeEnd, permtyp)
 }
 
+// 清空权限池
 func (as *authStore) clearCachedPerm() {
 	as.rangePermCache = make(map[string]*unifiedRangePermissions)
 }
 
+// 删掉给定用户的权限
 func (as *authStore) invalidateCachedPerm(userName string) {
 	delete(as.rangePermCache, userName)
 }
