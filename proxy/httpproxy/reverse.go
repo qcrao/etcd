@@ -131,6 +131,7 @@ func (p *reverseProxy) ServeHTTP(rw http.ResponseWriter, clientreq *http.Request
 
 	var res *http.Response
 
+	// 尝试请求所有的节点
 	for _, ep := range endpoints {
 		if proxybody != nil {
 			proxyreq.Body = ioutil.NopCloser(bytes.NewBuffer(proxybody))
